@@ -100,3 +100,63 @@ export const searchChannels = async (query) => {
     throw error
   }
 }
+
+// Backend OAuth functions
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+
+export const getTwitchAuthURL = async (redirectUri, state) => {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/v1/auth/twitch/url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to get auth URL: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.data.auth_url
+  } catch (error) {
+    console.error('Error getting Twitch auth URL:', error)
+    throw error
+  }
+}
+
+export const exchangeTwitchCode = async (code, redirectUri, state) => {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/v1/auth/twitch/callback?code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`,
+      { method: 'POST' }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Failed to exchange code: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.data
+  } catch (error) {
+    console.error('Error exchanging Twitch code:', error)
+    throw error
+  }
+}
+
+export const validateTwitchToken = async (accessToken) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/v1/auth/twitch/validate`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to validate token: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.data
+  } catch (error) {
+    console.error('Error validating Twitch token:', error)
+    throw error
+  }
+}

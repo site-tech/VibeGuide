@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,10 +18,16 @@ import (
 	"github.com/go-chi/render"
 	"github.com/site-tech/VibeGuide/pkg/logger"
 	"github.com/site-tech/VibeGuide/pkg/mytypes"
+	"github.com/supabase-community/supabase-go"
+	"gorm.io/gorm"
 
 	zlog "github.com/rs/zerolog/log"
 	_ "github.com/swaggo/swag"
 )
+
+var DB *gorm.DB
+
+var SBClient *supabase.Client
 
 type apiVersionCtx string
 
@@ -32,30 +39,42 @@ type VibeConfig struct {
 	// Basic Fields
 	Port   string
 	LogLvl string
+	// Database Fields
+	DbURL     string
+	DbName    string
+	DbPort    string
+	DbUser    string
+	DbPass    string
+	DbMigrate bool
+	// Supabase Vars
+	SupabaseApiUrl string
+	SupabaseApiKey string
 }
 
 func loadConfig() (*VibeConfig, error) {
 	newConfig := VibeConfig{}
+	var err error
+
 	// Load vars from env
 	newConfig.Port = os.Getenv("PORT")
 	newConfig.LogLvl = os.Getenv("LOGLVL")
-	Config = &newConfig
+	newConfig.DbURL = getEnv("DBURL", "localhost")
+	newConfig.DbName = getEnv("DBNAME", "")
+	newConfig.DbPort = getEnv("DBPORT", "5432")
+	newConfig.DbUser = getEnv("DBUSER", "")
+	newConfig.DbPass = os.Getenv("DBPASS")
+	newConfig.SupabaseApiUrl = getEnv("SB_API_URL", "http://host.docker.internal:54321")
+	newConfig.SupabaseApiKey = getEnv("SB_API_KEY", "")
 
+	newConfig.DbMigrate, err = getEnvAsBool("DBMIGRATE", false)
+	if err != nil {
+		return nil, err
+	}
+
+	Config = &newConfig
 	return &newConfig, nil
 }
 
-// @title           VibeGuide Backend API
-// @version         1.0
-// @description     VibeGuide backend for the TTV Guide
-
-// @license.name  Apache 2.0
-// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
-
-// @host      localhost:8081
-// @BasePath  /v1
-
-// @externalDocs.description  OpenAPI
-// @externalDocs.url          https://swagger.io/resources/open-api/
 func main() {
 	if err := run(); err != nil {
 		zlog.Fatal().Err(err)
@@ -78,6 +97,43 @@ func run() (err error) {
 	defer stop()
 
 	zlog.Info().Msg(fmt.Sprintf("vibe config: %+v\n", config))
+
+	zlog.Info().Msg("connecting to database...")
+	db, err := Connect(DBCredentials{
+		Url:  config.DbURL,
+		Port: config.DbPort,
+		User: config.DbUser,
+		Pass: config.DbPass,
+		Name: config.DbName,
+	})
+	if err != nil {
+		zlog.Error().Msg(fmt.Sprintf("database connection err: %v\n", err))
+		return
+	}
+	DB = db
+	zlog.Info().Msg("connected to database")
+
+	if config.DbMigrate {
+		zlog.Info().Msg("migrating database...")
+		err = MigrateDatabase(DB)
+		if err != nil {
+			zlog.Error().Msg(fmt.Sprintf("database migration err: %v\n", err))
+			return
+		}
+		zlog.Info().Msg("db migrated")
+	}
+
+	zlog.Info().Msg("creating supabase client...")
+	// Setup Supabase Auth Client
+	supabaseClient, err := supabase.NewClient(config.SupabaseApiUrl, config.SupabaseApiKey,
+		&supabase.ClientOptions{})
+
+	if err != nil {
+		zlog.Error().Msg(fmt.Sprintf("supabase client init error: %v\n", err))
+		return
+	}
+	SBClient = supabaseClient
+	zlog.Info().Msg("supabase client created.")
 
 	zlog.Info().Msg("building router...")
 	router := routes()
@@ -190,4 +246,40 @@ func apiVersionContext(version string) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// --- Helper Functions for Robust Env Var Parsing ---
+
+// getEnv retrieves an environment variable or returns a fallback value.
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
+// getEnvAsUint retrieves and parses an environment variable as a uint or returns a fallback.
+func getEnvAsUint(key string, fallback uint) (uint, error) {
+	strVal := os.Getenv(key)
+	if strVal == "" {
+		return fallback, nil
+	}
+	val, err := strconv.ParseUint(strVal, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("could not parse env var %s: %w", key, err)
+	}
+	return uint(val), nil
+}
+
+// getEnvAsBool retrieves and parses an environment variable as a bool or returns a fallback.
+func getEnvAsBool(key string, fallback bool) (bool, error) {
+	strVal := os.Getenv(key)
+	if strVal == "" {
+		return fallback, nil
+	}
+	val, err := strconv.ParseBool(strVal)
+	if err != nil {
+		return false, fmt.Errorf("could not parse env var %s: %w", key, err)
+	}
+	return val, nil
 }

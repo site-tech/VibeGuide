@@ -2,7 +2,9 @@ package twitch
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -14,34 +16,65 @@ const (
 	TwitchOAuthValidate  = "https://id.twitch.tv/oauth2/validate"
 	StreamsEndpoint      = "/streams"
 	UsersEndpoint        = "/users"
+	CategoriesEndpoint   = "/games/top"
 )
 
 // Default values
 const (
-	DefaultStreamLimit = 100
-	MaxStreamLimit     = 1000
-	HTTPTimeout        = 10 // seconds
+	DefaultStreamLimit   = 100
+	MaxStreamLimit       = 1000
+	DefaultCategoryLimit = 20
+	MaxCategoryLimit     = 100
+	HTTPTimeout          = 10 // seconds
+)
+
+// Query parameter validation constants
+const (
+	MinStreamQueryLimit = 1
+	MaxStreamQueryLimit = 100
+	DefaultQueryLimit   = 20
 )
 
 // Stream represents a Twitch stream with essential information
 type Stream struct {
-	ID           string `json:"id"`
-	UserID       string `json:"user_id"`
-	UserLogin    string `json:"user_login"`
-	UserName     string `json:"user_name"`
-	GameID       string `json:"game_id"`
-	GameName     string `json:"game_name"`
-	Type         string `json:"type"`
-	Title        string `json:"title"`
-	ViewerCount  int    `json:"viewer_count"`
-	StartedAt    string `json:"started_at"`
-	Language     string `json:"language"`
-	ThumbnailURL string `json:"thumbnail_url"`
+	ID           string   `json:"id"`
+	UserID       string   `json:"user_id"`
+	UserLogin    string   `json:"user_login"`
+	UserName     string   `json:"user_name"`
+	GameID       string   `json:"game_id"`
+	GameName     string   `json:"game_name"`
+	Type         string   `json:"type"`
+	Title        string   `json:"title"`
+	ViewerCount  int      `json:"viewer_count"`
+	StartedAt    string   `json:"started_at"`
+	Language     string   `json:"language"`
+	ThumbnailURL string   `json:"thumbnail_url"`
+	Tags         []string `json:"tags"`
 }
 
 // StreamsResponse represents the response from Twitch API for streams
 type StreamsResponse struct {
 	Data []Stream `json:"data"`
+}
+
+// StreamsQueryParams represents query parameters for the streams endpoint
+type StreamsQueryParams struct {
+	Limit  int    `json:"limit"`   // Number of streams to return (1-100, default: 20)
+	GameID string `json:"game_id"` // Filter by specific game/category ID
+	Sort   string `json:"sort"`    // Sorting method: "viewers" (default), "recent"
+}
+
+// Category represents a Twitch game category with game information
+type Category struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BoxArtURL string `json:"box_art_url"`
+	IGDBId    string `json:"igdb_id"`
+}
+
+// CategoriesResponse represents the response from Twitch API for categories
+type CategoriesResponse struct {
+	Data []Category `json:"data"`
 }
 
 // Client interface defines the core Twitch client functionality
@@ -51,6 +84,7 @@ type Client interface {
 	ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*UserToken, error)
 	ValidateToken(ctx context.Context, accessToken string) (*TokenValidation, error)
 	GetUserInfo(ctx context.Context, accessToken string) (*User, error)
+	GetCategories(ctx context.Context, limit int, sortBy string) (*CategoriesResponse, error)
 }
 
 // OAuthManager interface defines OAuth token management functionality
@@ -81,6 +115,57 @@ type OAuthManagerImpl struct {
 	clientSecret string
 	token        *Token
 	httpClient   *http.Client
+}
+
+// ValidateStreamsParams validates the StreamsQueryParams struct
+func ValidateStreamsParams(params StreamsQueryParams) error {
+	if err := ValidateLimit(params.Limit); err != nil {
+		return err
+	}
+
+	if err := ValidateGameID(params.GameID); err != nil {
+		return err
+	}
+
+	if err := ValidateSort(params.Sort); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ValidateLimit validates the limit parameter (1-100)
+func ValidateLimit(limit int) error {
+	if limit < MinStreamQueryLimit || limit > MaxStreamQueryLimit {
+		return fmt.Errorf("limit must be between %d and %d, got %d", MinStreamQueryLimit, MaxStreamQueryLimit, limit)
+	}
+	return nil
+}
+
+// ValidateGameID validates the game_id parameter (numeric string if provided)
+func ValidateGameID(gameID string) error {
+	if gameID == "" {
+		return nil // Empty game_id is valid (no filtering)
+	}
+
+	if _, err := strconv.Atoi(gameID); err != nil {
+		return fmt.Errorf("game_id must be a numeric string, got %s", gameID)
+	}
+
+	return nil
+}
+
+// ValidateSort validates the sort parameter ("viewers" or "recent")
+func ValidateSort(sort string) error {
+	if sort == "" {
+		return nil // Empty sort is valid (defaults to "viewers")
+	}
+
+	if sort != "viewers" && sort != "recent" {
+		return fmt.Errorf("sort must be 'viewers' or 'recent', got %s", sort)
+	}
+
+	return nil
 }
 
 // UserToken represents an OAuth token for a user (authorization code flow)

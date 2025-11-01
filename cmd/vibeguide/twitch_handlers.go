@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 func twitchRouter(twitchClient twitch.Client) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/streams/top", getTopStreamsHandler(twitchClient))
+	r.Get("/categories", getCategoriesHandler(twitchClient))
 	return r
 }
 
@@ -123,4 +125,80 @@ func determineErrorStatusCode(err error) int {
 
 	// Default to service unavailable for unknown errors
 	return http.StatusServiceUnavailable // 503
+}
+
+// getCategoriesHandler handles requests to fetch game categories from Twitch
+func getCategoriesHandler(twitchClient twitch.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tId := middleware.GetReqID(ctx)
+		apiVersion := ctx.Value(apivctx).(string)
+
+		zlog.Info().Msgf("(%s) getCategoriesHandler started", tId)
+
+		// Parse limit parameter from query string (optional)
+		limit := twitch.DefaultCategoryLimit
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				if parsedLimit > twitch.MaxCategoryLimit {
+					parsedLimit = twitch.MaxCategoryLimit
+				}
+				limit = parsedLimit
+			}
+		}
+
+		// Parse sort parameter from query string (optional)
+		sortBy := r.URL.Query().Get("sort")
+		if sortBy == "" {
+			sortBy = "top" // Default to top categories
+		}
+
+		// Validate sort parameter
+		if sortBy != "top" {
+			zlog.Error().
+				Str("transaction_id", tId).
+				Str("api_version", apiVersion).
+				Str("sort_param", sortBy).
+				Msg("Invalid sort parameter provided")
+
+			handleErr(w, r, fmt.Errorf("invalid sort parameter: %s, only 'top' is supported", sortBy), http.StatusBadRequest)
+			return
+		}
+
+		// Fetch categories from Twitch API
+		categoriesResponse, err := twitchClient.GetCategories(ctx, limit, sortBy)
+		if err != nil {
+			// Determine appropriate HTTP status code based on error type
+			statusCode := determineErrorStatusCode(err)
+
+			zlog.Error().
+				Err(err).
+				Str("transaction_id", tId).
+				Str("api_version", apiVersion).
+				Int("status_code", statusCode).
+				Int("requested_limit", limit).
+				Str("sort_by", sortBy).
+				Msg("Failed to fetch categories from Twitch API")
+
+			handleErr(w, r, err, statusCode)
+			return
+		}
+
+		// Build successful response
+		resp := mytypes.APIHandlerResp{
+			TransactionId: tId,
+			ApiVersion:    apiVersion,
+			Data:          categoriesResponse,
+		}
+
+		w.WriteHeader(http.StatusOK)
+		render.JSON(w, r, resp)
+
+		zlog.Info().
+			Str("transaction_id", tId).
+			Str("api_version", apiVersion).
+			Int("category_count", len(categoriesResponse.Data)).
+			Str("sort_by", sortBy).
+			Msg("getCategoriesHandler completed successfully")
+	}
 }

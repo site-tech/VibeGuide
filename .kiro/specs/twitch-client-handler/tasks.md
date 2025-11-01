@@ -70,13 +70,66 @@
     - Test token validation logic
     - _Requirements: 2.1, 2.3_
   
-  - [-] 7.2 Create client tests
+  - [x] 7.2 Create client tests
     - Test GetTopStreams method with mock responses
     - Test error handling for various API failure scenarios
     - Create test data files for sample Twitch API responses
     - _Requirements: 1.1, 3.3_
   
-  - [ ] 7.3 Create handler tests
+  - [x] 7.3 Create handler tests
     - Test HTTP endpoint with successful responses
     - Test error scenarios and proper HTTP status codes
     - _Requirements: 3.1, 3.2, 3.3_
+
+- [ ] 8. Implement categories functionality
+  - [x] 8.1 Add Category data model and response types
+    - Create `Category` struct with game information fields (ID, Name, BoxArtURL, IGDBId)
+    - Add `CategoriesResponse` struct for API responses
+    - Update constants with categories endpoint URL (`/games/top`)
+    - _Requirements: 5.1, 5.2_
+  
+  - [x] 8.2 Implement GetCategories method
+    - Add method to fetch game categories from Twitch API with sort parameter
+    - Support sorting by "top" (most viewed categories)
+    - Include proper request headers and authentication
+    - Parse JSON response into Category structs
+    - Handle API errors and HTTP status codes
+    - _Requirements: 5.1, 5.2, 5.4_
+  
+  - [x] 8.3 Create categories HTTP handler
+    - Create `getCategoriesHandler` function
+    - Support `sort=top` query parameter for sorting by most viewed
+    - Support `limit` query parameter for result count control
+    - Use existing error handling patterns
+    - Format responses using `mytypes.APIHandlerResp` structure
+    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  
+  - [x] 8.4 Add categories route to router
+    - Add `/categories` endpoint to `twitchRouter`
+    - Test endpoint integration with existing router
+    - _Requirements: 5.1_
+  
+  - [x] 8.5 Update Stream model with tags support
+    - Add `Tags []string` field to Stream struct
+    - Update existing GetTopStreams method to include tags in response
+    - _Requirements: 1.1_
+
+- [x] 9. Add categories testing
+  - [x] 9.1 Create categories client tests
+    - Test GetCategories method with mock responses
+    - Test sort parameter functionality (sort=top)
+    - Test error handling for API failure scenarios
+    - Create test data for sample categories API responses
+    - _Requirements: 5.2, 5.4_
+  
+  - [x] 9.2 Create categories handler tests
+    - Test categories HTTP endpoint with successful responses
+    - Test sort=top query parameter functionality
+    - Test limit query parameter functionality
+    - Test error scenarios and proper HTTP status codes
+    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  
+  - [x] 9.3 Update existing tests for Stream tags
+    - Update stream tests to include tags field validation
+    - Test tags parsing from Twitch API responses
+    - _Requirements: 1.1_

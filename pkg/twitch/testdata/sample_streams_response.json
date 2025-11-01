@@ -1,0 +1,34 @@
+{
+  "data": [
+    {
+      "id": "123456789",
+      "user_id": "987654321",
+      "user_login": "teststreamer",
+      "user_name": "TestStreamer",
+      "game_id": "509658",
+      "game_name": "Just Chatting",
+      "type": "live",
+      "title": "Test Stream Title",
+      "viewer_count": 1500,
+      "started_at": "2023-01-01T12:00:00Z",
+      "language": "en",
+      "thumbnail_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-{width}x{height}.jpg",
+      "tags": ["English", "Chatting", "Interactive"]
+    },
+    {
+      "id": "987654321",
+      "user_id": "123456789",
+      "user_login": "anotherstreamer",
+      "user_name": "AnotherStreamer",
+      "game_id": "32982",
+      "game_name": "Grand Theft Auto V",
+      "type": "live",
+      "title": "Another Test Stream",
+      "viewer_count": 2500,
+      "started_at": "2023-01-01T11:30:00Z",
+      "language": "en",
+      "thumbnail_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_anotherstreamer-{width}x{height}.jpg",
+      "tags": ["GTA", "Roleplay", "English"]
+    }
+  ]
+}

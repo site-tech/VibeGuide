@@ -10,10 +10,13 @@ import (
 
 // API URLs and endpoints
 const (
-	TwitchAPIBaseURL   = "https://api.twitch.tv/helix"
-	TwitchOAuthURL     = "https://id.twitch.tv/oauth2/token"
-	StreamsEndpoint    = "/streams"
-	CategoriesEndpoint = "/games/top"
+	TwitchAPIBaseURL     = "https://api.twitch.tv/helix"
+	TwitchOAuthURL       = "https://id.twitch.tv/oauth2/token"
+	TwitchOAuthAuthorize = "https://id.twitch.tv/oauth2/authorize"
+	TwitchOAuthValidate  = "https://id.twitch.tv/oauth2/validate"
+	StreamsEndpoint      = "/streams"
+	UsersEndpoint        = "/users"
+	CategoriesEndpoint   = "/games/top"
 )
 
 // Default values
@@ -77,6 +80,10 @@ type CategoriesResponse struct {
 // Client interface defines the core Twitch client functionality
 type Client interface {
 	GetTopStreams(ctx context.Context, limit int) (*StreamsResponse, error)
+	GetAuthorizationURL(redirectURI, state string, scopes []string) string
+	ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*UserToken, error)
+	ValidateToken(ctx context.Context, accessToken string) (*TokenValidation, error)
+	GetUserInfo(ctx context.Context, accessToken string) (*User, error)
 	GetCategories(ctx context.Context, limit int, sortBy string) (*CategoriesResponse, error)
 }
 
@@ -159,4 +166,41 @@ func ValidateSort(sort string) error {
 	}
 
 	return nil
+}
+
+// UserToken represents an OAuth token for a user (authorization code flow)
+type UserToken struct {
+	AccessToken  string   `json:"access_token"`
+	RefreshToken string   `json:"refresh_token"`
+	TokenType    string   `json:"token_type"`
+	ExpiresIn    int      `json:"expires_in"`
+	Scope        []string `json:"scope"`
+}
+
+// TokenValidation represents the response from token validation
+type TokenValidation struct {
+	ClientID  string   `json:"client_id"`
+	Login     string   `json:"login"`
+	Scopes    []string `json:"scopes"`
+	UserID    string   `json:"user_id"`
+	ExpiresIn int      `json:"expires_in"`
+}
+
+// User represents a Twitch user
+type User struct {
+	ID              string `json:"id"`
+	Login           string `json:"login"`
+	DisplayName     string `json:"display_name"`
+	Type            string `json:"type"`
+	BroadcasterType string `json:"broadcaster_type"`
+	Description     string `json:"description"`
+	ProfileImageURL string `json:"profile_image_url"`
+	OfflineImageURL string `json:"offline_image_url"`
+	Email           string `json:"email"`
+	CreatedAt       string `json:"created_at"`
+}
+
+// UsersResponse represents the response from Twitch API for users
+type UsersResponse struct {
+	Data []User `json:"data"`
 }

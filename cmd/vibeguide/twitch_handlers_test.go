@@ -37,6 +37,31 @@ func (m *mockTwitchClient) GetCategories(ctx context.Context, limit int, sortBy 
 	return m.categories, nil
 }
 
+func (m *mockTwitchClient) GetAuthorizationURL(redirectURI, state string, scopes []string) string {
+	return "https://id.twitch.tv/oauth2/authorize?client_id=test&redirect_uri=" + redirectURI + "&state=" + state
+}
+
+func (m *mockTwitchClient) ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*twitch.UserToken, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.UserToken{AccessToken: "test_token"}, nil
+}
+
+func (m *mockTwitchClient) ValidateToken(ctx context.Context, accessToken string) (*twitch.TokenValidation, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.TokenValidation{UserID: "test_user"}, nil
+}
+
+func (m *mockTwitchClient) GetUserInfo(ctx context.Context, accessToken string) (*twitch.User, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.User{ID: "test_user", Login: "test_login"}, nil
+}
+
 // mockTwitchClientWithLimit implements twitch.Client for testing and tracks the limit parameter
 type mockTwitchClientWithLimit struct {
 	streams       *twitch.StreamsResponse
@@ -64,6 +89,31 @@ func (m *mockTwitchClientWithLimit) GetCategories(ctx context.Context, limit int
 		return nil, fmt.Errorf("%s", m.errMsg)
 	}
 	return m.categories, nil
+}
+
+func (m *mockTwitchClientWithLimit) GetAuthorizationURL(redirectURI, state string, scopes []string) string {
+	return "https://id.twitch.tv/oauth2/authorize?client_id=test&redirect_uri=" + redirectURI + "&state=" + state
+}
+
+func (m *mockTwitchClientWithLimit) ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*twitch.UserToken, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.UserToken{AccessToken: "test_token"}, nil
+}
+
+func (m *mockTwitchClientWithLimit) ValidateToken(ctx context.Context, accessToken string) (*twitch.TokenValidation, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.TokenValidation{UserID: "test_user"}, nil
+}
+
+func (m *mockTwitchClientWithLimit) GetUserInfo(ctx context.Context, accessToken string) (*twitch.User, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.User{ID: "test_user", Login: "test_login"}, nil
 }
 
 // createTestStreamsResponse creates a sample streams response for testing

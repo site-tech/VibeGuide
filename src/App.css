@@ -1,0 +1,3 @@
+.scrollable-grid::-webkit-scrollbar {
+  display: none;
+}

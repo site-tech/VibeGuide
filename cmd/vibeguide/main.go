@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/render"
 	"github.com/site-tech/VibeGuide/pkg/logger"
 	"github.com/site-tech/VibeGuide/pkg/mytypes"
+	"github.com/site-tech/VibeGuide/pkg/twitch"
 
 	zlog "github.com/rs/zerolog/log"
 	_ "github.com/swaggo/swag"
@@ -32,6 +33,10 @@ type VibeConfig struct {
 	// Basic Fields
 	Port   string
 	LogLvl string
+
+	// Twitch API Credentials
+	TwitchClientID     string
+	TwitchClientSecret string
 }
 
 func loadConfig() (*VibeConfig, error) {
@@ -39,6 +44,19 @@ func loadConfig() (*VibeConfig, error) {
 	// Load vars from env
 	newConfig.Port = os.Getenv("PORT")
 	newConfig.LogLvl = os.Getenv("LOGLVL")
+
+	// Load Twitch API credentials
+	newConfig.TwitchClientID = os.Getenv("TWITCH_CLIENT_ID")
+	newConfig.TwitchClientSecret = os.Getenv("TWITCH_CLIENT_SECRET")
+
+	// Validate required Twitch credentials
+	if newConfig.TwitchClientID == "" {
+		return nil, fmt.Errorf("TWITCH_CLIENT_ID environment variable is required")
+	}
+	if newConfig.TwitchClientSecret == "" {
+		return nil, fmt.Errorf("TWITCH_CLIENT_SECRET environment variable is required")
+	}
+
 	Config = &newConfig
 
 	return &newConfig, nil
@@ -79,8 +97,27 @@ func run() (err error) {
 
 	zlog.Info().Msg(fmt.Sprintf("vibe config: %+v\n", config))
 
+	// Initialize Twitch client
+	zlog.Info().Msg("initializing Twitch client...")
+	twitchClient := twitch.NewClient(config.TwitchClientID, config.TwitchClientSecret)
+	if twitchClient == nil {
+		return fmt.Errorf("failed to initialize Twitch client: client is nil")
+	}
+
+	// Test client initialization by attempting to get a token
+	testCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err = twitchClient.GetTopStreams(testCtx, 1)
+	if err != nil {
+		zlog.Error().Err(err).Msg("Twitch client initialization test failed")
+		return fmt.Errorf("failed to initialize Twitch client: %w", err)
+	}
+
+	zlog.Info().Msg("Twitch client initialized and tested successfully")
+
 	zlog.Info().Msg("building router...")
-	router := routes()
+	router := routes(twitchClient)
 	zlog.Info().Msg("router built")
 
 	// Build HTTP server
@@ -118,7 +155,7 @@ func run() (err error) {
 
 // ============= ROUTER =============
 
-func routes() *chi.Mux {
+func routes(twitchClient twitch.Client) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(render.SetContentType(render.ContentTypeJSON),
@@ -148,6 +185,8 @@ func routes() *chi.Mux {
 		})
 		// CRUD API Routes
 		r.Mount("/vibe", vibeRouter())
+		// Twitch API Routes
+		r.Mount("/twitch", twitchRouter(twitchClient))
 	})
 
 	return r
@@ -178,7 +217,14 @@ func handleErr(w http.ResponseWriter, r *http.Request, err error, code int) {
 	if err != nil {
 		w.WriteHeader(code)
 		resp.Data = err.Error() // Best practice: Send the error string instead of the raw error object.
-		zlog.Error().Err(err).Int("status_code", code).Str("transaction_id", tId).Msg("API Error")
+		zlog.Error().
+			Err(err).
+			Int("status_code", code).
+			Str("transaction_id", tId).
+			Str("api_version", apiVersion).
+			Str("request_path", r.URL.Path).
+			Str("request_method", r.Method).
+			Msg("API Error")
 		render.JSON(w, r, resp)
 	}
 }

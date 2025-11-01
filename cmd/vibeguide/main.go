@@ -221,6 +221,7 @@ func routes(twitchClient twitch.Client) *chi.Mux {
 		httplog.RequestLogger(logger.NewRouterLogger()),
 		render.SetContentType(render.ContentTypeJSON),
 		middleware.Recoverer,
+		corsMiddleware(),
 	)
 
 	r.Use(middleware.Timeout(45 * time.Second)) // Increased for potentially slower HEIC decoding
@@ -235,12 +236,15 @@ func routes(twitchClient twitch.Client) *chi.Mux {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(apiVersionContext("v1"))
+		r.Use(twitchClientContext(twitchClient))
 		r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			render.JSON(w, r, map[string]string{"message": "getTest"})
 		})
 		// CRUD API Routes
 		r.Mount("/vibe", vibeRouter())
+		// Auth Routes
+		r.Mount("/auth", authRouter())
 		// Twitch API Routes
 		r.Mount("/twitch", twitchRouter(twitchClient))
 	})
@@ -251,6 +255,22 @@ func routes(twitchClient twitch.Client) *chi.Mux {
 func vibeRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Post("/", demoHandler)
+
+	return r
+}
+
+func authRouter() http.Handler {
+	r := chi.NewRouter()
+	// Email/Password Auth
+	r.Post("/signup", signupUser)
+	r.Post("/login", loginUser)
+	r.Post("/logout", logoutUser)
+	r.Get("/user", getUserAuth)
+
+	// Twitch OAuth
+	r.Get("/twitch/url", getTwitchAuthURL)
+	r.Post("/twitch/callback", twitchCallback)
+	r.Get("/twitch/validate", validateTwitchToken)
 
 	return r
 }
@@ -289,6 +309,41 @@ func apiVersionContext(version string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			r = r.WithContext(context.WithValue(r.Context(), apivctx, version))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func twitchClientContext(twitchClient twitch.Client) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), "twitchClient", twitchClient))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func corsMiddleware() func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Allow requests from frontend
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				origin = "*"
+			}
+
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Max-Age", "300")
+
+			// Handle preflight requests
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -1,103 +1,213 @@
-# Vibe Guide
+# VibeGuide - Twitch TV Guide
 
-A modern, responsive React web application built with Vite, Tailwind CSS, and dark mode support. This single-page application is designed to integrate with the Twitch API and other services.
+A modern Twitch TV Guide application with OAuth authentication. Built with Go backend and React frontend.
 
 ## Features
 
-- ⚡ Built with Vite for lightning-fast development
-- ⚛️ React 18 with modern hooks
-- 🎨 Tailwind CSS for styling
-- 🌓 Dark mode support with localStorage persistence
-- 📱 Fully responsive and mobile-friendly
-- 🎮 Ready for Twitch API integration
-- 🚀 Single-page application (no routing needed)
+- 🔐 **Twitch OAuth Authentication** - Sign in with Twitch
+- 👤 **User Profiles** - Display user avatar and info
+- 🎮 **Twitch API Integration** - Fetch streams and games
+- ⚡ **Fast Development** - Vite + Go for quick iteration
+- 🎨 **Modern UI** - Tailwind CSS with responsive design
+- 🌓 **Dark Mode** - Built-in dark mode support
+- 🔒 **Secure** - CSRF protection and token validation
 
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
-- npm or yarn
+- Go 1.21+
+- Node.js 18+
+- Twitch Developer Account
 
-### Installation
+### Setup
 
-1. Install dependencies:
-```bash
-npm install
-```
+1. **Configure Twitch App**
+   - Go to https://dev.twitch.tv/console/apps
+   - Add redirect URI: `http://localhost:5173/`
+   - Get Client ID and Secret
 
-2. Set up environment variables:
-```bash
-cp .env.example .env
-```
+2. **Backend Setup**
+   ```bash
+   # Create .env
+   cp .env.example .env
+   
+   # Add credentials
+   TWITCH_CLIENT_ID=your_client_id
+   TWITCH_CLIENT_SECRET=your_client_secret
+   ```
 
-3. Add your Twitch API credentials to `.env`:
-   - Get credentials from https://dev.twitch.tv/console/apps
-   - Add your `VITE_TWITCH_CLIENT_ID` and `VITE_TWITCH_CLIENT_SECRET`
+3. **Frontend Setup**
+   ```bash
+   # Install dependencies
+   npm install
+   
+   # Create .env
+   echo "VITE_API_URL=http://localhost:8080" > .env
+   ```
 
-### Development
+4. **Start Services**
+   ```bash
+   # Terminal 1 - Backend
+   go run ./cmd/vibeguide
+   
+   # Terminal 2 - Frontend
+   npm run dev
+   ```
 
-Run the development server:
-```bash
-npm run dev
-```
+5. **Open Browser**
+   - Navigate to http://localhost:5173
+   - Click "Sign in with Twitch"
+   - Authorize and enjoy!
 
-The app will be available at `http://localhost:5173`
-
-### Build
-
-Build for production:
-```bash
-npm run build
-```
-
-Preview production build:
-```bash
-npm run preview
-```
+📖 **Full setup guide**: [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)
 
 ## Project Structure
 
 ```
-├── public/              # Static assets
-├── src/
-│   ├── components/      # React components
-│   │   ├── Header.jsx   # Navigation with dark mode toggle
-│   │   ├── Hero.jsx     # Hero section
-│   │   ├── Content.jsx  # Main content area
-│   │   └── Footer.jsx   # Footer section
+VibeGuide/
+├── cmd/vibeguide/          # Backend (Go)
+│   ├── main.go            # Server, routing, CORS
+│   ├── auth.go            # OAuth handlers
+│   └── twitch_handlers.go # Twitch API handlers
+├── pkg/twitch/            # Twitch client library
+│   ├── client.go          # API client
+│   ├── oauth.go           # OAuth manager
+│   └── types.go           # Type definitions
+├── src/                   # Frontend (React)
+│   ├── components/
+│   │   ├── Header.jsx            # Header with login button
+│   │   ├── TwitchLoginButton.jsx # OAuth login component
+│   │   └── ...
 │   ├── utils/
-│   │   └── twitchApi.js # Twitch API utilities
-│   ├── App.jsx          # Main app component
-│   ├── main.jsx         # Entry point
-│   └── index.css        # Global styles with Tailwind
-├── index.html
-├── vite.config.js
-├── tailwind.config.js
-└── package.json
+│   │   └── twitchApi.js   # API utilities
+│   └── App.jsx            # Main app
+├── docs/                  # Documentation
+│   ├── LOCAL_SETUP.md     # Setup guide
+│   └── TROUBLESHOOTING.md # Common issues
+├── .env.example           # Environment template
+├── go.mod                 # Go dependencies
+└── package.json           # Node dependencies
 ```
 
-## Twitch API Integration
+## Authentication
 
-The app includes utility functions for Twitch API integration in `src/utils/twitchApi.js`:
+### Twitch OAuth Flow
 
-- `getTwitchToken()` - Get OAuth token
-- `getTopStreams()` - Fetch top live streams
-- `getTopGames()` - Fetch top games
-- `searchChannels()` - Search for channels
+1. User clicks "Sign in with Twitch"
+2. Redirects to Twitch authorization
+3. User authorizes the app
+4. Redirects back with auth code
+5. Backend exchanges code for token
+6. User profile displayed in header
 
-## Customization
+### API Endpoints
 
-The app is ready for you to add your business logic and styling. Key areas to customize:
+- `GET /v1/auth/twitch/url` - Get authorization URL
+- `POST /v1/auth/twitch/callback` - Exchange code for token
+- `GET /v1/auth/twitch/validate` - Validate token
 
-- Update components in `src/components/` with your content
-- Modify Tailwind theme in `tailwind.config.js`
-- Add API integrations in `src/utils/`
-- Update colors, fonts, and spacing to match your brand
+## Development
 
-## Dark Mode
+### Backend (Go)
+```bash
+# Run
+go run ./cmd/vibeguide
 
-Dark mode is implemented using Tailwind's `dark:` variant and persists user preference in localStorage. Toggle is available in the header on both desktop and mobile.
+# Build
+go build -o vibeguide ./cmd/vibeguide
+
+# Test
+curl http://localhost:8080/ping
+```
+
+### Frontend (React)
+```bash
+# Run
+npm run dev
+
+# Build
+npm run build
+
+# Preview
+npm run preview
+```
+
+## Configuration
+
+### Backend (.env)
+```bash
+TWITCH_CLIENT_ID=your_client_id
+TWITCH_CLIENT_SECRET=your_client_secret
+PORT=8080
+```
+
+### Frontend (.env)
+```bash
+VITE_API_URL=http://localhost:8080
+```
+
+## Troubleshooting
+
+Common issues and solutions:
+
+- **CORS errors**: Make sure backend is running
+- **redirect_mismatch**: Check Twitch has `http://localhost:5173/`
+- **Port in use**: Use `lsof -i :8080` to find and kill process
+
+📖 **Full troubleshooting guide**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+
+## Documentation
+
+- 📖 [Local Setup Guide](docs/LOCAL_SETUP.md) - Complete setup instructions
+- 🔧 [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and fixes
+- 📚 [Documentation Index](docs/README.md) - All documentation
+
+## Tech Stack
+
+**Backend:**
+- Go 1.21+
+- chi router
+- Twitch OAuth 2.0
+
+**Frontend:**
+- React 18
+- Vite
+- Tailwind CSS
+- Twitch API
+
+## Features in Detail
+
+### 🔐 Authentication
+- Secure OAuth 2.0 flow
+- CSRF protection
+- Token validation
+- User profile display
+
+### 🎨 UI Components
+- Responsive header with login button
+- User profile dropdown
+- Dark mode support
+- Mobile-friendly design
+
+### 🔒 Security
+- CORS configured
+- State parameter validation
+- Secure token storage
+- Error handling
+
+## Testing
+
+```bash
+# Test backend
+curl http://localhost:8080/ping
+
+# Test auth endpoint
+curl "http://localhost:8080/v1/auth/twitch/url?redirect_uri=http://localhost:5173/&state=test"
+
+# Debug in browser
+window.debugOAuth()
+```
 
 ## License
 

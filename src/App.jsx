@@ -6,7 +6,8 @@ function App() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
   const scrollRef = useRef(null)
-  const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0 })
+  const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
+  const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -15,12 +16,89 @@ function App() {
     return () => clearInterval(timer)
   }, [])
 
+  // Auto-scroll effect
+  useEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+
+    const getRowHeight = () => {
+      const vh = window.innerHeight / 100
+      const vw = window.innerWidth / 100
+      return (50 * vh - 4 * vw) / 4 // typicalRowHeight in pixels
+    }
+
+    const startAutoScroll = () => {
+      const rowHeight = getRowHeight()
+      const targetScroll = scrollElement.scrollTop + (4 * rowHeight)
+      const startScroll = scrollElement.scrollTop
+      const duration = 8000 // 8 seconds to scroll 4 rows
+      const startTime = Date.now()
+
+      autoScrollRef.current.interval = setInterval(() => {
+        const elapsed = Date.now() - startTime
+        const progress = Math.min(elapsed / duration, 1)
+        const easeProgress = progress * (2 - progress) // ease out
+        
+        scrollElement.scrollTop = startScroll + (targetScroll - startScroll) * easeProgress
+
+        if (progress >= 1) {
+          clearInterval(autoScrollRef.current.interval)
+          // Wait 10 seconds before next scroll
+          autoScrollRef.current.timeout = setTimeout(() => {
+            if (Date.now() - autoScrollRef.current.lastInteraction >= 10000) {
+              startAutoScroll()
+            }
+          }, 10000)
+        }
+      }, 16) // ~60fps
+    }
+
+    const resetAutoScroll = () => {
+      autoScrollRef.current.lastInteraction = Date.now()
+      clearTimeout(autoScrollRef.current.timeout)
+      clearInterval(autoScrollRef.current.interval)
+      
+      // Start 10 second countdown
+      autoScrollRef.current.timeout = setTimeout(() => {
+        if (Date.now() - autoScrollRef.current.lastInteraction >= 10000) {
+          startAutoScroll()
+        }
+      }, 10000)
+    }
+
+    // Initial auto-scroll setup
+    resetAutoScroll()
+
+    // Reset on user interaction
+    const handleInteraction = () => {
+      resetAutoScroll()
+    }
+
+    scrollElement.addEventListener('wheel', handleInteraction)
+    scrollElement.addEventListener('touchstart', handleInteraction)
+    scrollElement.addEventListener('mousedown', handleInteraction)
+
+    return () => {
+      clearTimeout(autoScrollRef.current.timeout)
+      clearInterval(autoScrollRef.current.interval)
+      scrollElement.removeEventListener('wheel', handleInteraction)
+      scrollElement.removeEventListener('touchstart', handleInteraction)
+      scrollElement.removeEventListener('mousedown', handleInteraction)
+    }
+  }, [])
+
   useEffect(() => {
     const scrollElement = scrollRef.current
     const headerRow = document.getElementById('header-row')
     const firstColumn = document.getElementById('first-column')
     
     if (!scrollElement) return
+
+    // Calculate column width in pixels for snap scrolling
+    const getColumnWidth = () => {
+      const vw = window.innerWidth / 100
+      return 18.96 * vw // typicalColumnWidth in pixels
+    }
 
     const handleScroll = () => {
       if (headerRow) {
@@ -44,8 +122,28 @@ function App() {
       }
 
       if (scrollLockRef.current.direction === 'horizontal') {
-        scrollElement.scrollLeft += e.deltaX + e.deltaY
         e.preventDefault()
+        
+        // Accumulate scroll delta with reduced sensitivity (40% of original)
+        scrollLockRef.current.scrollAccumulator += (e.deltaX + e.deltaY) * 0.4
+        
+        // Only trigger column snap when accumulated scroll exceeds threshold
+        const scrollThreshold = 30 // Require more scroll input to trigger
+        if (Math.abs(scrollLockRef.current.scrollAccumulator) >= scrollThreshold) {
+          const columnWidth = getColumnWidth()
+          const currentColumn = Math.round(scrollElement.scrollLeft / columnWidth)
+          const scrollDirection = scrollLockRef.current.scrollAccumulator > 0 ? 1 : -1
+          const targetColumn = Math.max(0, currentColumn + scrollDirection)
+          const targetScroll = targetColumn * columnWidth
+          
+          scrollElement.scrollTo({
+            left: targetScroll,
+            behavior: 'smooth'
+          })
+          
+          // Reset accumulator after snap
+          scrollLockRef.current.scrollAccumulator = 0
+        }
       } else if (scrollLockRef.current.direction === 'vertical') {
         scrollElement.scrollTop += e.deltaY + e.deltaX
         e.preventDefault()
@@ -55,6 +153,7 @@ function App() {
       clearTimeout(scrollLockRef.current.timeout)
       scrollLockRef.current.timeout = setTimeout(() => {
         scrollLockRef.current.direction = null
+        scrollLockRef.current.scrollAccumulator = 0
       }, 75)
     }
 
@@ -145,7 +244,7 @@ function App() {
       display: 'flex',
       flexDirection: 'column',
       padding: '0 2.6vw 1.3vw 2.6vw',
-      filter: 'blur(0.5px)',
+      filter: 'blur(0.75px)',
       imageRendering: 'pixelated'
     }}>
       {/* Top Half - Split into 2 quadrants */}
@@ -247,7 +346,25 @@ function App() {
           zIndex: 4,
           backgroundColor: '#1B0731'
         }}>
-          <div style={firstColumnHeaderStyle}>{formatTime(currentTime)}</div>
+          <div style={{
+            ...firstColumnHeaderStyle,
+            position: 'relative'
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: '#674D82',
+              borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+              borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+              borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
+              borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+              zIndex: -1
+            }} />
+            <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(currentTime)}</span>
+          </div>
         </div>
         
         {/* Frozen Header Row */}
@@ -265,7 +382,25 @@ function App() {
           }}
         >
           {Array.from({ length: totalColumns - 1 }, (_, i) => (
-            <div key={i} style={headerCellStyle}>Time Slot {i + 1}</div>
+            <div key={i} style={{
+              ...headerCellStyle,
+              position: 'relative'
+            }}>
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#674D82',
+                borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
+                borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                zIndex: -1
+              }} />
+              <span style={{ position: 'relative', zIndex: 1 }}>Time Slot {i + 1}</span>
+            </div>
           ))}
         </div>
         
@@ -285,7 +420,38 @@ function App() {
           }}
         >
           {Array.from({ length: totalRows - 1 }, (_, i) => (
-            <div key={i} style={{...firstColumnStyle, height: typicalRowHeight}}>CH {i + 1}</div>
+            <div key={i} style={{
+              ...firstColumnStyle, 
+              height: typicalRowHeight,
+              position: 'relative',
+              flexDirection: 'column',
+              gap: '0.2vh',
+              padding: '0 0.5vw'
+            }}>
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#312043',
+                borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
+                borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                zIndex: -1
+              }} />
+              <span style={{ position: 'relative', zIndex: 1 }}>CH {i + 1}</span>
+              <span style={{ 
+                position: 'relative', 
+                zIndex: 1, 
+                fontSize: 'clamp(10px, 1.2vw, 30px)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                width: '100%'
+              }}>CATEGORY</span>
+            </div>
           ))}
         </div>
         

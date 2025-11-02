@@ -1,3 +1,28 @@
 .scrollable-grid::-webkit-scrollbar {
   display: none;
 }
+
+/* Filter button hover effect */
+button:has(.filter-button-bg):hover .filter-button-bg {
+  background-color: #7D5BA6 !important;
+}
+
+/* Show button hover effect */
+.show-button:hover .show-button-bg {
+  background-color: #5A4268 !important;
+}
+
+/* Login button hover effect */
+.login-button:hover .login-button-bg {
+  background-color: #7D5BA6 !important;
+}
+
+/* RSS feed scrolling animation */
+@keyframes scroll-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}

@@ -1028,7 +1028,7 @@ function App() {
                   animationDelay: `${rssAnimationDelay}s`
                 }}
               >
-                RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE: Weather forecast for the week ahead /// RSS HERE: Entertainment news and celebrity updates /// RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE
+                Happy Kiroween! Catch a vibe with TTV Guide!  ///  Login to see your followers, click to preview a stream and get the full experience on Twitch!  ///  Stay idle for the old-school TTV Guide experience!  ///  Leave a like on our Kiroween Devpost submission!  ///  Happy Kiroween! Catch a vibe with TTV Guide!  ///  Login to see your followers, click to preview a stream and get the full experience on Twitch!  ///  Stay idle for the old-school TTV Guide experience!  ///  Leave a like on our Kiroween Devpost submission!  ///  
               </span>
             </div>
           </button>

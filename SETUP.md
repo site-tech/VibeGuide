@@ -45,6 +45,17 @@ TWITCH_CLIENT_SECRET=your_client_secret
 
 ## Features
 
+### Featured Stream (Top Section)
+
+- **Top Left**: Live Twitch stream embed with autoplay
+- **Top Right**: Stream details including:
+  - Category name
+  - Streamer username
+  - Current day
+  - Category rank (1-50)
+
+A random stream is selected from all available streams across all categories on page load.
+
 ### Categories Display
 
 The app fetches the top 50 Twitch categories from the backend and displays them in the left column of the TV guide grid. Each channel (CH 1-50) shows its corresponding category name.

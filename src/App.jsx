@@ -3,13 +3,13 @@ import './App.css'
 import { getTopCategories, getStreamsByCategory } from './lib/api'
 
 function App() {
-  const [channelNumber] = useState(Math.floor(Math.random() * 100) + 1)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
   const [categories, setCategories] = useState([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
   const [isLoadingStreams, setIsLoadingStreams] = useState(false)
+  const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
@@ -144,6 +144,8 @@ function App() {
   // Fetch streams for each category after categories are loaded
   useEffect(() => {
     if (categories.length === 0) return
+    // Prevent multiple fetches
+    if (Object.keys(categoryStreams).length > 0) return
 
     const fetchAllStreams = async () => {
       setIsLoadingStreams(true)
@@ -166,12 +168,37 @@ function App() {
       
       console.log('Streams loaded for all categories')
       console.log('Sample - First category streams:', streamsMap[categories[0].id]?.slice(0, 3).map(s => s.user_name))
+      
+      // Pick a random stream to feature BEFORE setting state
+      let selectedStream = null
+      const allStreams = []
+      categories.forEach((category, categoryIndex) => {
+        const streams = streamsMap[category.id] || []
+        streams.forEach(stream => {
+          allStreams.push({
+            ...stream,
+            categoryName: category.name,
+            categoryRank: categoryIndex + 1 // 1-indexed rank
+          })
+        })
+      })
+      
+      if (allStreams.length > 0) {
+        const randomIndex = Math.floor(Math.random() * allStreams.length)
+        selectedStream = allStreams[randomIndex]
+        console.log('Featured stream selected:', selectedStream.user_name, 'in', selectedStream.categoryName)
+      }
+      
+      // Batch state updates to prevent multiple renders
       setCategoryStreams(streamsMap)
+      if (selectedStream) {
+        setFeaturedStream(selectedStream)
+      }
       setIsLoadingStreams(false)
     }
     
     fetchAllStreams()
-  }, [categories])
+  }, [categories, categoryStreams])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -489,13 +516,44 @@ function App() {
         height: '50%',
         width: '100%'
       }}>
-        {/* Top Left Quadrant */}
+        {/* Top Left Quadrant - Twitch Stream Embed */}
         <div style={{
           width: '50%',
-          height: '100%'
-        }} />
+          height: '100%',
+          position: 'relative',
+          backgroundColor: '#000'
+        }}>
+          {featuredStream ? (
+            <iframe
+              key={featuredStream.user_login}
+              src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
+              height="100%"
+              width="100%"
+              allowFullScreen={true}
+              allow="autoplay; fullscreen"
+              style={{
+                border: 'none',
+                display: 'block'
+              }}
+              title={`${featuredStream.user_name} Twitch Stream`}
+            />
+          ) : (
+            <div style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+              fontSize: 'clamp(20px, 2vw, 60px)'
+            }}>
+              {isLoadingStreams ? 'Loading Stream...' : 'No Stream Available'}
+            </div>
+          )}
+        </div>
 
-        {/* Top Right Quadrant with gradient and text */}
+        {/* Top Right Quadrant with gradient and stream details */}
         <div style={{
           width: '50%',
           height: '100%',
@@ -524,7 +582,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Category
+            {featuredStream ? featuredStream.categoryName : 'Category'}
           </div>
           <div style={{
             fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
@@ -536,7 +594,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            "StreamerName"
+            {featuredStream ? featuredStream.user_name : 'StreamerName'}
           </div>
           <div style={{
             fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
@@ -560,7 +618,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Channel {channelNumber}
+            {featuredStream ? `Channel #${featuredStream.categoryRank}` : 'Channel'}
           </div>
         </div>
       </div>

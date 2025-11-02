@@ -164,10 +164,23 @@ All browsers:
 - ✅ Unmute button works
 - ✅ Fullscreen works
 
+## Update: Autoplay Detection Added
+
+We've now added intelligent detection for browsers that block autoplay (like Brave):
+
+### New Features
+- ✅ Automatic detection of autoplay blocking
+- ✅ User-friendly overlay with play button
+- ✅ Browser-specific instructions (Brave, Firefox, Safari)
+- ✅ Manual play trigger that works reliably
+- ✅ Dismiss option for users who prefer not to play
+
+See [AUTOPLAY_DETECTION.md](./AUTOPLAY_DETECTION.md) for full details.
+
 ## Future Enhancements
 
 Potential improvements:
-1. Add visual indicator that stream is muted
+1. ~~Add visual indicator for autoplay issues~~ ✅ DONE
 2. Add prominent "Unmute" button overlay
 3. Remember user's mute preference (localStorage)
 4. Auto-unmute on user interaction with the page

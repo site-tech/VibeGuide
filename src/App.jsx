@@ -10,6 +10,9 @@ function App() {
   const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
   const [isLoadingStreams, setIsLoadingStreams] = useState(false)
   const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
+  const [showPlayPrompt, setShowPlayPrompt] = useState(false) // Show manual play button
+  const [userInteracted, setUserInteracted] = useState(false) // Track if user has interacted
+  const iframeRef = useRef(null)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
@@ -199,6 +202,34 @@ function App() {
     
     fetchAllStreams()
   }, [categories, categoryStreams])
+
+  // Detect if autoplay might be blocked and show prompt after a delay
+  useEffect(() => {
+    if (!featuredStream || userInteracted) return
+    
+    // Show play prompt after 3 seconds if user hasn't interacted
+    const timer = setTimeout(() => {
+      if (!userInteracted) {
+        setShowPlayPrompt(true)
+      }
+    }, 3000)
+    
+    return () => clearTimeout(timer)
+  }, [featuredStream, userInteracted])
+
+  // Handle user interaction to enable autoplay
+  const handlePlayClick = () => {
+    setUserInteracted(true)
+    setShowPlayPrompt(false)
+    // Reload the iframe to trigger autoplay with user interaction
+    if (iframeRef.current) {
+      const currentSrc = iframeRef.current.src
+      iframeRef.current.src = ''
+      setTimeout(() => {
+        iframeRef.current.src = currentSrc
+      }, 100)
+    }
+  }
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -524,19 +555,133 @@ function App() {
           backgroundColor: '#000'
         }}>
           {featuredStream ? (
-            <iframe
-              key={featuredStream.user_login}
-              src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
-              height="100%"
-              width="100%"
-              allowFullScreen={true}
-              allow="autoplay; fullscreen"
-              style={{
-                border: 'none',
-                display: 'block'
-              }}
-              title={`${featuredStream.user_name} Twitch Stream`}
-            />
+            <>
+              <iframe
+                ref={iframeRef}
+                key={featuredStream.user_login}
+                src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
+                height="100%"
+                width="100%"
+                allowFullScreen={true}
+                allow="autoplay; fullscreen"
+                style={{
+                  border: 'none',
+                  display: 'block'
+                }}
+                title={`${featuredStream.user_name} Twitch Stream`}
+              />
+              
+              {/* Play Prompt Overlay */}
+              {showPlayPrompt && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '2vh',
+                  padding: '2vw',
+                  zIndex: 10
+                }}>
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontWeight: 'bold',
+                    fontSize: 'clamp(24px, 2.5vw, 70px)',
+                    color: '#E3E07D',
+                    textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+                    textAlign: 'center',
+                    marginBottom: '1vh'
+                  }}>
+                    Stream Autoplay Blocked
+                  </div>
+                  
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontSize: 'clamp(14px, 1.2vw, 30px)',
+                    color: 'white',
+                    textAlign: 'center',
+                    maxWidth: '80%',
+                    lineHeight: '1.5'
+                  }}>
+                    Your browser settings are preventing the stream from playing automatically.
+                  </div>
+                  
+                  <button
+                    onClick={handlePlayClick}
+                    style={{
+                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                      fontWeight: 'bold',
+                      fontSize: 'clamp(18px, 1.8vw, 50px)',
+                      color: 'white',
+                      backgroundColor: '#9147FF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '1.5vh 3vw',
+                      cursor: 'pointer',
+                      textShadow: '2px 2px 0px rgba(0, 0, 0, 0.5)',
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+                      transition: 'all 0.2s ease',
+                      marginTop: '1vh'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#7c3aed'
+                      e.target.style.transform = 'scale(1.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = '#9147FF'
+                      e.target.style.transform = 'scale(1)'
+                    }}
+                  >
+                    ▶ Click to Play Stream
+                  </button>
+                  
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontSize: 'clamp(12px, 1vw, 24px)',
+                    color: '#aaa',
+                    textAlign: 'center',
+                    maxWidth: '85%',
+                    lineHeight: '1.4',
+                    marginTop: '2vh',
+                    borderTop: '1px solid #444',
+                    paddingTop: '2vh'
+                  }}>
+                    <strong style={{ color: '#E3E07D' }}>Using Brave Browser?</strong><br />
+                    Go to Settings → Shields → Change "Auto-play media" to "Allow"
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowPlayPrompt(false)}
+                    style={{
+                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                      fontSize: 'clamp(12px, 1vw, 24px)',
+                      color: '#888',
+                      backgroundColor: 'transparent',
+                      border: '1px solid #555',
+                      borderRadius: '4px',
+                      padding: '0.5vh 1.5vw',
+                      cursor: 'pointer',
+                      marginTop: '1vh'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.color = 'white'
+                      e.target.style.borderColor = '#888'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.color = '#888'
+                      e.target.style.borderColor = '#555'
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div style={{
               width: '100%',

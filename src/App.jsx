@@ -8,6 +8,83 @@ function App() {
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
+  
+  // Generate content blocks for all rows once on mount
+  const [rowBlocks] = useState(() => {
+    // EDITABLE PARAMETERS
+    const SHOW_WIDTH_OPTIONS = [1, 1.5, 2] // Available widths for show blocks (in cells)
+    const MAX_GRID_POSITION = 45 // Maximum position to stop generating blocks
+    const SIMILAR_LAYOUT_INTERVAL = 4 // Every Nth row will copy previous row's layout
+    const PROBABILITY_WIDTH_1_VS_2 = 0.5 // When choosing between 1 or 2 cells (0.0 = always 1, 1.0 = always 2)
+    
+    const allRows = []
+    
+    // Generate blocks that align to 3-cell boundaries
+    const generateRowBlocks = (rowIndex, channelNum) => {
+      const blocks = []
+      let currentPosition = 0
+      const maxPosition = MAX_GRID_POSITION
+      let blockId = 0
+      
+      // Width options that work with 3-cell alignment: max 2 cells
+      const widthOptions = SHOW_WIDTH_OPTIONS
+      
+      while (currentPosition < maxPosition) {
+        // Pick a width that keeps us aligned to 3-cell boundaries
+        const remainingToNext3 = 3 - (currentPosition % 3)
+        let width
+        
+        if (remainingToNext3 === 3) {
+          // At a 3-cell boundary, can use any available width
+          width = widthOptions[Math.floor(Math.random() * widthOptions.length)]
+        } else if (remainingToNext3 === 2) {
+          // 1 cell into boundary, use 1 or 2 based on probability
+          width = Math.random() > PROBABILITY_WIDTH_1_VS_2 ? 1 : 2
+        } else {
+          // 2 cells into boundary, must use 1
+          width = 1
+        }
+        
+        // Don't overflow
+        if (currentPosition + width > maxPosition) {
+          width = maxPosition - currentPosition
+        }
+        
+        blocks.push({
+          id: blockId++,
+          width: width,
+          text: `CH${channelNum} Show ${blockId}`,
+          position: currentPosition
+        })
+        
+        currentPosition += width
+      }
+      
+      return blocks
+    }
+    
+    // Generate blocks for each row
+    for (let row = 0; row < 50; row++) {
+      let blocks
+      
+      // Every Nth row, make 2 consecutive rows have similar layout
+      if (row % SIMILAR_LAYOUT_INTERVAL === 0 && row > 0) {
+        // Copy previous row's layout but with different text
+        const prevBlocks = allRows[row - 1]
+        blocks = prevBlocks.map((block, idx) => ({
+          ...block,
+          id: idx,
+          text: `CH${row + 1} Show ${idx + 1}`
+        }))
+      } else {
+        blocks = generateRowBlocks(row, row + 1)
+      }
+      
+      allRows.push(blocks)
+    }
+    
+    return allRows
+  })
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -29,6 +106,7 @@ function App() {
 
     const startAutoScroll = () => {
       const rowHeight = getRowHeight()
+      const maxScroll = rowHeight * 50 // Total height of all 50 rows
       const targetScroll = scrollElement.scrollTop + (4 * rowHeight)
       const startScroll = scrollElement.scrollTop
       const duration = 8000 // 8 seconds to scroll 4 rows
@@ -43,6 +121,12 @@ function App() {
 
         if (progress >= 1) {
           clearInterval(autoScrollRef.current.interval)
+          
+          // Check if we've reached the end, if so loop back to start
+          if (scrollElement.scrollTop >= maxScroll - (4 * rowHeight)) {
+            scrollElement.scrollTop = 0
+          }
+          
           // Wait 10 seconds before next scroll
           autoScrollRef.current.timeout = setTimeout(() => {
             if (Date.now() - autoScrollRef.current.lastInteraction >= 10000) {
@@ -101,9 +185,7 @@ function App() {
     }
 
     const handleScroll = () => {
-      if (headerRow) {
-        headerRow.style.transform = `translateX(-${scrollElement.scrollLeft}px)`
-      }
+      // Header row stays static, don't transform it
       if (firstColumn) {
         firstColumn.style.transform = `translateY(-${scrollElement.scrollTop}px)`
       }
@@ -167,13 +249,17 @@ function App() {
   }, [])
 
   const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', { 
+    const timeString = date.toLocaleTimeString('en-US', { 
       hour: '2-digit', 
       minute: '2-digit', 
       second: '2-digit',
-      hour12: false 
+      hour12: true 
     })
+    // Convert am/pm to uppercase AM/PM and add extra spaces
+    return timeString.replace(/\s?(am|pm)/gi, (match) => '    ' + match.trim().toUpperCase())
   }
+
+
 
   const totalRows = 50
   const totalColumns = 50
@@ -193,13 +279,14 @@ function App() {
   
   // Calculate row height
   // Available height = 50vh (bottom half)
-  // Header row height based on text size with padding
-  // Assuming header needs ~4vw for text + padding
-  // Remaining: 50vh - 4vw for 4 rows
-  // Each row = (50vh - 4vw) / 4
+  // Header row: 4vw (includes its borders)
+  // Content area: 50vh - 4vw
+  // We need 4 rows to fit, with the last row's bottom border (5px) fully visible
+  // So: 4 rows + 6px for bottom border clearance = 50vh - 4vw
+  // Each row: (50vh - 4vw - 6px) / 4
   
   const headerRowHeight = '4vw'
-  const typicalRowHeight = 'calc((50vh - 4vw) / 4)'
+  const typicalRowHeight = 'calc((50vh - 4vw - 6px) / 4)'
   
   const cellStyle = {
     fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
@@ -214,7 +301,8 @@ function App() {
     whiteSpace: 'nowrap',
     border: '1px solid black',
     height: typicalRowHeight,
-    minWidth: typicalColumnWidth
+    minWidth: typicalColumnWidth,
+    boxSizing: 'border-box'
   }
   
   const headerCellStyle = {
@@ -227,7 +315,8 @@ function App() {
   const firstColumnStyle = {
     ...cellStyle,
     minWidth: firstColumnWidth,
-    color: '#E3E07D'
+    color: '#E3E07D',
+    boxSizing: 'border-box'
   }
   
   const firstColumnHeaderStyle = {
@@ -244,7 +333,7 @@ function App() {
       display: 'flex',
       flexDirection: 'column',
       padding: '0 2.6vw 1.3vw 2.6vw',
-      filter: 'blur(0.75px)',
+      filter: 'blur(0.04vw)',
       imageRendering: 'pixelated'
     }}>
       {/* Top Half - Split into 2 quadrants */}
@@ -331,7 +420,7 @@ function App() {
 
       {/* Bottom Half - TV Guide Grid */}
       <div style={{
-        height: '50%',
+        height: '50vh',
         width: '100%',
         position: 'relative',
         overflow: 'hidden'
@@ -374,6 +463,7 @@ function App() {
             position: 'absolute',
             top: 0,
             left: firstColumnWidth,
+            right: 0,
             height: headerRowHeight,
             zIndex: 3,
             backgroundColor: '#1B0731',
@@ -381,12 +471,58 @@ function App() {
             pointerEvents: 'none'
           }}
         >
-          {Array.from({ length: totalColumns - 1 }, (_, i) => (
-            <div key={i} style={{
+          {Array.from({ length: 4 }, (_, i) => (
+            <button key={i} style={{
               ...headerCellStyle,
-              position: 'relative'
+              position: 'relative',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+              border: 'none',
+              background: 'none'
             }}>
-              <div style={{
+              <div 
+                className="filter-button-bg"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: '#674D82',
+                  borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                  borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                  borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
+                  borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                  zIndex: -1,
+                  transition: 'background-color 0.2s ease'
+                }} 
+              />
+              <span style={{ position: 'relative', zIndex: 1 }}>Filter {i + 1}</span>
+            </button>
+          ))}
+          {/* Login Button */}
+          <button className="login-button" style={{
+            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+            fontWeight: 'bold',
+            fontStretch: 'condensed',
+            fontSize: 'clamp(20px, 2vw, 60px)',
+            color: 'white',
+            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: headerRowHeight,
+            minHeight: headerRowHeight,
+            flex: 1,
+            position: 'relative',
+            cursor: 'pointer',
+            pointerEvents: 'auto',
+            border: 'none',
+            background: 'none'
+          }}>
+            <div 
+              className="login-button-bg"
+              style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -397,11 +533,12 @@ function App() {
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
                 borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
                 borderRight: '5px solid rgba(0, 0, 0, 0.8)',
-                zIndex: -1
-              }} />
-              <span style={{ position: 'relative', zIndex: 1 }}>Time Slot {i + 1}</span>
-            </div>
-          ))}
+                zIndex: -1,
+                transition: 'background-color 0.2s ease'
+              }} 
+            />
+            <span style={{ position: 'relative', zIndex: 1 }}>Login</span>
+          </button>
         </div>
         
         {/* Frozen First Column */}
@@ -439,6 +576,7 @@ function App() {
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
                 borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
                 borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                boxSizing: 'border-box',
                 zIndex: -1
               }} />
               <span style={{ position: 'relative', zIndex: 1 }}>CH {i + 1}</span>
@@ -449,7 +587,8 @@ function App() {
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                width: '100%'
+                width: '100%',
+                textAlign: 'center'
               }}>CATEGORY</span>
             </div>
           ))}
@@ -471,6 +610,68 @@ function App() {
             msOverflowStyle: 'none'
           }}
         >
+          {/* Content blocks for all rows */}
+          {rowBlocks.map((blocks, rowIndex) => (
+            <div key={rowIndex} style={{
+              position: 'absolute',
+              top: `calc(${headerRowHeight} + ${typicalRowHeight} * ${rowIndex})`,
+              left: firstColumnWidth,
+              height: typicalRowHeight,
+              display: 'flex',
+              gap: '0'
+            }}>
+              {blocks.map((block) => (
+                <button 
+                  key={block.id} 
+                  className="show-button"
+                  style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontWeight: 'bold',
+                    fontStretch: 'condensed',
+                    fontSize: 'clamp(20px, 2vw, 60px)',
+                    color: 'white',
+                    textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    whiteSpace: 'nowrap',
+                    border: '1px solid black',
+                    height: typicalRowHeight,
+                    width: `calc(${typicalColumnWidth} * ${block.width})`,
+                    minWidth: `calc(${typicalColumnWidth} * ${block.width})`,
+                    boxSizing: 'border-box',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    padding: '0 0.5vw',
+                    cursor: 'pointer',
+                    background: 'none'
+                  }}
+                >
+                  <div 
+                    className="show-button-bg"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      backgroundColor: '#423352',
+                      borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                      borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                      borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
+                      borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                      boxSizing: 'border-box',
+                      zIndex: -1,
+                      transition: 'background-color 0.2s ease'
+                    }} 
+                  />
+                  <span style={{ position: 'relative', zIndex: 1 }}>{block.text}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+          
           <div style={{
             display: 'grid',
             gridTemplateRows: `${headerRowHeight} repeat(${totalRows - 1}, ${typicalRowHeight})`,
@@ -482,8 +683,9 @@ function App() {
               const col = index % totalColumns
               const isHeaderRow = row === 0
               const isFirstColumn = col === 0
+              const isContentRow = row > 0 && row <= 50
               
-              let style = { ...cellStyle, visibility: (isHeaderRow || isFirstColumn) ? 'hidden' : 'visible' }
+              let style = { ...cellStyle, visibility: (isHeaderRow || isFirstColumn || isContentRow) ? 'hidden' : 'visible' }
               
               if (isHeaderRow && isFirstColumn) {
                 style = { ...firstColumnHeaderStyle, visibility: 'hidden' }

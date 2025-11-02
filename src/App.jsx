@@ -459,17 +459,17 @@ function App() {
       // Adjust duration based on distance: 2 seconds per row
       // This keeps the speed consistent whether scrolling 3.5 rows or 4 rows
       const duration = Math.max(rowsToScroll * 2000, 1000) // Minimum 1 second
-      const startTime = Date.now()
+      const startTime = performance.now()
 
-      autoScrollRef.current.interval = setInterval(() => {
-        const elapsed = Date.now() - startTime
+      const animate = (currentTime) => {
+        const elapsed = currentTime - startTime
         const progress = Math.min(elapsed / duration, 1)
         const easeProgress = progress * (2 - progress) // ease out
         
         scrollElement.scrollTop = startScroll + scrollDistance * easeProgress
 
         if (progress >= 1) {
-          clearInterval(autoScrollRef.current.interval)
+          cancelAnimationFrame(autoScrollRef.current.interval)
           
           // Snap to exact target to prevent drift
           scrollElement.scrollTop = actualTargetScroll
@@ -527,14 +527,20 @@ function App() {
               console.log('User interacted, not continuing auto-scroll')
             }
           }, 10000)
+        } else {
+          autoScrollRef.current.interval = requestAnimationFrame(animate)
         }
-      }, 16) // ~60fps
+      }
+      
+      autoScrollRef.current.interval = requestAnimationFrame(animate)
     }
 
     const resetAutoScroll = () => {
       autoScrollRef.current.lastInteraction = Date.now()
       clearTimeout(autoScrollRef.current.timeout)
-      clearInterval(autoScrollRef.current.interval)
+      if (autoScrollRef.current.interval) {
+        cancelAnimationFrame(autoScrollRef.current.interval)
+      }
       
       // Start 10 second countdown
       autoScrollRef.current.timeout = setTimeout(() => {
@@ -585,7 +591,9 @@ function App() {
 
     return () => {
       clearTimeout(autoScrollRef.current.timeout)
-      clearInterval(autoScrollRef.current.interval)
+      if (autoScrollRef.current.interval) {
+        cancelAnimationFrame(autoScrollRef.current.interval)
+      }
       scrollElement.removeEventListener('wheel', handleInteraction)
       scrollElement.removeEventListener('touchstart', handleInteraction)
       scrollElement.removeEventListener('mousedown', handleInteraction)

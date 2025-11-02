@@ -69,3 +69,5 @@ export async function getStreamsByCategory(gameId, limit = 20) {
     return [] // Return empty array on error to avoid breaking the UI
   }
 }
+
+// Twitch OAuth is handled by Supabase - no custom API calls needed

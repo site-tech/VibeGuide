@@ -1,10 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { getTopCategories, getStreamsByCategory } from './lib/api'
 
 function App() {
-  const [channelNumber] = useState(Math.floor(Math.random() * 100) + 1)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [categories, setCategories] = useState([])
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true)
+  const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
+  const [isLoadingStreams, setIsLoadingStreams] = useState(false)
+  const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
+  const [showPlayPrompt, setShowPlayPrompt] = useState(false) // Show manual play button
+  const [userInteracted, setUserInteracted] = useState(false) // Track if user has interacted
+  const iframeRef = useRef(null)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
@@ -14,8 +22,8 @@ function App() {
     return sessionStorage.getItem('showTopBlanks') === 'true'
   })
   
-  // Generate content blocks for all rows once on mount
-  const [rowBlocks] = useState(() => {
+  // Generate layout structure for all rows once on mount (without text content)
+  const [rowLayouts] = useState(() => {
     // EDITABLE PARAMETERS
     const SHOW_WIDTH_OPTIONS = [1, 1.5, 2] // Available widths for show blocks (in cells)
     const MAX_GRID_POSITION = 45 // Maximum position to stop generating blocks
@@ -28,13 +36,12 @@ function App() {
     const createBlankRow = () => [{
       id: 0,
       width: 45, // Full width to match MAX_GRID_POSITION
-      text: '',
       position: 0,
       isBlank: true
     }]
     
     // Generate blocks that align to 3-cell boundaries
-    const generateRowBlocks = (rowIndex, channelNum) => {
+    const generateRowBlocks = (rowIndex) => {
       const blocks = []
       let currentPosition = 0
       const maxPosition = MAX_GRID_POSITION
@@ -67,8 +74,8 @@ function App() {
         blocks.push({
           id: blockId++,
           width: width,
-          text: `CH${channelNum} Show ${blockId}`,
-          position: currentPosition
+          position: currentPosition,
+          streamIndex: blockId - 1 // Index to map to stream data
         })
         
         currentPosition += width
@@ -91,19 +98,19 @@ function App() {
       
       // Every Nth row, make 2 consecutive rows have similar layout
       if (row % SIMILAR_LAYOUT_INTERVAL === 0 && row > 0) {
-        // Copy previous row's layout but with different text
+        // Copy previous row's layout
         const prevBlocks = allRows[allRows.length - 1]
         if (!prevBlocks[0]?.isBlank) {
           blocks = prevBlocks.map((block, idx) => ({
             ...block,
             id: idx,
-            text: `CH${row + 1} Show ${idx + 1}`
+            streamIndex: idx
           }))
         } else {
-          blocks = generateRowBlocks(row, row + 1)
+          blocks = generateRowBlocks(row)
         }
       } else {
-        blocks = generateRowBlocks(row, row + 1)
+        blocks = generateRowBlocks(row)
       }
       
       allRows.push(blocks)
@@ -116,6 +123,113 @@ function App() {
     
     return allRows
   })
+
+  // Fetch categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setIsLoadingCategories(true)
+        const data = await getTopCategories(50)
+        console.log('Categories loaded:', data.length, 'categories')
+        console.log('First 5 categories:', data.slice(0, 5).map(c => c.name))
+        setCategories(data)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+        // Keep empty array on error
+      } finally {
+        setIsLoadingCategories(false)
+      }
+    }
+    
+    fetchCategories()
+  }, [])
+
+  // Fetch streams for each category after categories are loaded
+  useEffect(() => {
+    if (categories.length === 0) return
+    // Prevent multiple fetches
+    if (Object.keys(categoryStreams).length > 0) return
+
+    const fetchAllStreams = async () => {
+      setIsLoadingStreams(true)
+      console.log('Fetching streams for', categories.length, 'categories...')
+      
+      const streamsMap = {}
+      
+      // Fetch streams for all categories in parallel
+      const streamPromises = categories.map(async (category) => {
+        const streams = await getStreamsByCategory(category.id, 20)
+        return { categoryId: category.id, streams }
+      })
+      
+      const results = await Promise.all(streamPromises)
+      
+      // Build the streams map
+      results.forEach(({ categoryId, streams }) => {
+        streamsMap[categoryId] = streams
+      })
+      
+      console.log('Streams loaded for all categories')
+      console.log('Sample - First category streams:', streamsMap[categories[0].id]?.slice(0, 3).map(s => s.user_name))
+      
+      // Pick a random stream to feature BEFORE setting state
+      let selectedStream = null
+      const allStreams = []
+      categories.forEach((category, categoryIndex) => {
+        const streams = streamsMap[category.id] || []
+        streams.forEach(stream => {
+          allStreams.push({
+            ...stream,
+            categoryName: category.name,
+            categoryRank: categoryIndex + 1 // 1-indexed rank
+          })
+        })
+      })
+      
+      if (allStreams.length > 0) {
+        const randomIndex = Math.floor(Math.random() * allStreams.length)
+        selectedStream = allStreams[randomIndex]
+        console.log('Featured stream selected:', selectedStream.user_name, 'in', selectedStream.categoryName)
+      }
+      
+      // Batch state updates to prevent multiple renders
+      setCategoryStreams(streamsMap)
+      if (selectedStream) {
+        setFeaturedStream(selectedStream)
+      }
+      setIsLoadingStreams(false)
+    }
+    
+    fetchAllStreams()
+  }, [categories, categoryStreams])
+
+  // Detect if autoplay might be blocked and show prompt after a delay
+  useEffect(() => {
+    if (!featuredStream || userInteracted) return
+    
+    // Show play prompt after 3 seconds if user hasn't interacted
+    const timer = setTimeout(() => {
+      if (!userInteracted) {
+        setShowPlayPrompt(true)
+      }
+    }, 3000)
+    
+    return () => clearTimeout(timer)
+  }, [featuredStream, userInteracted])
+
+  // Handle user interaction to enable autoplay
+  const handlePlayClick = () => {
+    setUserInteracted(true)
+    setShowPlayPrompt(false)
+    // Reload the iframe to trigger autoplay with user interaction
+    if (iframeRef.current) {
+      const currentSrc = iframeRef.current.src
+      iframeRef.current.src = ''
+      setTimeout(() => {
+        iframeRef.current.src = currentSrc
+      }, 100)
+    }
+  }
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -433,13 +547,158 @@ function App() {
         height: '50%',
         width: '100%'
       }}>
-        {/* Top Left Quadrant */}
+        {/* Top Left Quadrant - Twitch Stream Embed */}
         <div style={{
           width: '50%',
-          height: '100%'
-        }} />
+          height: '100%',
+          position: 'relative',
+          backgroundColor: '#000'
+        }}>
+          {featuredStream ? (
+            <>
+              <iframe
+                ref={iframeRef}
+                key={featuredStream.user_login}
+                src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
+                height="100%"
+                width="100%"
+                allowFullScreen={true}
+                allow="autoplay; fullscreen"
+                style={{
+                  border: 'none',
+                  display: 'block'
+                }}
+                title={`${featuredStream.user_name} Twitch Stream`}
+              />
+              
+              {/* Play Prompt Overlay */}
+              {showPlayPrompt && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '2vh',
+                  padding: '2vw',
+                  zIndex: 10
+                }}>
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontWeight: 'bold',
+                    fontSize: 'clamp(24px, 2.5vw, 70px)',
+                    color: '#E3E07D',
+                    textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+                    textAlign: 'center',
+                    marginBottom: '1vh'
+                  }}>
+                    Stream Autoplay Blocked
+                  </div>
+                  
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontSize: 'clamp(14px, 1.2vw, 30px)',
+                    color: 'white',
+                    textAlign: 'center',
+                    maxWidth: '80%',
+                    lineHeight: '1.5'
+                  }}>
+                    Your browser settings are preventing the stream from playing automatically.
+                  </div>
+                  
+                  <button
+                    onClick={handlePlayClick}
+                    style={{
+                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                      fontWeight: 'bold',
+                      fontSize: 'clamp(18px, 1.8vw, 50px)',
+                      color: 'white',
+                      backgroundColor: '#9147FF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '1.5vh 3vw',
+                      cursor: 'pointer',
+                      textShadow: '2px 2px 0px rgba(0, 0, 0, 0.5)',
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+                      transition: 'all 0.2s ease',
+                      marginTop: '1vh'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#7c3aed'
+                      e.target.style.transform = 'scale(1.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = '#9147FF'
+                      e.target.style.transform = 'scale(1)'
+                    }}
+                  >
+                    ▶ Click to Play Stream
+                  </button>
+                  
+                  <div style={{
+                    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                    fontSize: 'clamp(12px, 1vw, 24px)',
+                    color: '#aaa',
+                    textAlign: 'center',
+                    maxWidth: '85%',
+                    lineHeight: '1.4',
+                    marginTop: '2vh',
+                    borderTop: '1px solid #444',
+                    paddingTop: '2vh'
+                  }}>
+                    <strong style={{ color: '#E3E07D' }}>Using Brave Browser?</strong><br />
+                    Go to Settings → Shields → Change "Auto-play media" to "Allow"
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowPlayPrompt(false)}
+                    style={{
+                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+                      fontSize: 'clamp(12px, 1vw, 24px)',
+                      color: '#888',
+                      backgroundColor: 'transparent',
+                      border: '1px solid #555',
+                      borderRadius: '4px',
+                      padding: '0.5vh 1.5vw',
+                      cursor: 'pointer',
+                      marginTop: '1vh'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.color = 'white'
+                      e.target.style.borderColor = '#888'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.color = '#888'
+                      e.target.style.borderColor = '#555'
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+              fontSize: 'clamp(20px, 2vw, 60px)'
+            }}>
+              {isLoadingStreams ? 'Loading Stream...' : 'No Stream Available'}
+            </div>
+          )}
+        </div>
 
-        {/* Top Right Quadrant with gradient and text */}
+        {/* Top Right Quadrant with gradient and stream details */}
         <div style={{
           width: '50%',
           height: '100%',
@@ -468,7 +727,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Category
+            {featuredStream ? featuredStream.categoryName : 'Category'}
           </div>
           <div style={{
             fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
@@ -480,7 +739,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            "StreamerName"
+            {featuredStream ? featuredStream.user_name : 'StreamerName'}
           </div>
           <div style={{
             fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
@@ -504,7 +763,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Channel {channelNumber}
+            {featuredStream ? `Channel #${featuredStream.categoryRank}` : 'Channel'}
           </div>
         </div>
       </div>
@@ -708,6 +967,17 @@ function App() {
             const isBlank = isTopBlank || isBottomBlank
             const channelNum = isBlank ? '' : (i - channelRowOffset + 1)
             
+            // Get category name for this channel
+            const categoryIndex = i - channelRowOffset
+            const categoryName = !isBlank && categories[categoryIndex] 
+              ? categories[categoryIndex].name 
+              : 'CATEGORY'
+            
+            // Debug logging for first few rows
+            if (i < 5 && categories.length > 0) {
+              console.log(`Row ${i}: channelNum=${channelNum}, categoryIndex=${categoryIndex}, categoryName=${categoryName}`)
+            }
+            
             return (
               <div key={i} style={{
                 ...firstColumnStyle, 
@@ -743,7 +1013,9 @@ function App() {
                       textOverflow: 'ellipsis',
                       width: '100%',
                       textAlign: 'center'
-                    }}>CATEGORY</span>
+                    }}>
+                      {isLoadingCategories ? 'Loading...' : categoryName}
+                    </span>
                   </>
                 )}
               </div>
@@ -768,8 +1040,14 @@ function App() {
           }}
         >
           {/* Content blocks for all rows */}
-          {rowBlocks.map((blocks, rowIndex) => {
+          {rowLayouts.map((blocks, rowIndex) => {
             const isBlankRow = blocks[0]?.isBlank
+            
+            // Get the category for this row (accounting for top blank rows)
+            const categoryIndex = showTopBlanks ? rowIndex - 4 : rowIndex
+            const category = categories[categoryIndex]
+            const streams = category ? categoryStreams[category.id] : []
+            
             return (
               <div key={rowIndex} style={{
                 position: 'absolute',
@@ -874,7 +1152,13 @@ function App() {
                         transition: 'background-color 0.2s ease'
                       }} 
                     />
-                    <span style={{ position: 'relative', zIndex: 1 }}>{block.text}</span>
+                    <span style={{ position: 'relative', zIndex: 1 }}>
+                      {isLoadingStreams 
+                        ? 'Loading...' 
+                        : streams && streams[block.streamIndex] 
+                          ? streams[block.streamIndex].user_name 
+                          : 'No Stream'}
+                    </span>
                   </button>
                 )
                 })}

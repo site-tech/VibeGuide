@@ -15,7 +15,8 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
-  const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
+  const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now(), isAutoScrolling: false })
+  const rssScrollRef = useRef(null)
   
   // Check if we should show top blank rows (after reload)
   const [showTopBlanks] = useState(() => {
@@ -83,6 +84,19 @@ function App() {
       console.error('Logout error:', error)
     }
   }
+  
+  // Restore RSS animation position from sessionStorage
+  const [rssAnimationDelay] = useState(() => {
+    const savedTime = sessionStorage.getItem('rssAnimationTime')
+    if (savedTime) {
+      const elapsed = parseFloat(savedTime)
+      // Return negative delay to start animation from saved position
+      // Use modulo to wrap around the 60s animation cycle
+      const normalizedTime = elapsed % 60
+      return -normalizedTime
+    }
+    return 0
+  })
   
   // Generate layout structure for all rows once on mount (without text content)
   const [rowLayouts] = useState(() => {
@@ -265,6 +279,36 @@ function App() {
     return () => clearInterval(timer)
   }, [])
   
+  // Track RSS animation time and save before reload
+  useEffect(() => {
+    const rssElement = rssScrollRef.current
+    if (!rssElement) return
+    
+    const startTime = Date.now()
+    const initialOffset = Math.abs(rssAnimationDelay)
+    
+    // Save animation time periodically and before unload/reload
+    const saveAnimationTime = () => {
+      const elapsedSeconds = (Date.now() - startTime) / 1000
+      const totalTime = initialOffset + elapsedSeconds
+      sessionStorage.setItem('rssAnimationTime', totalTime.toString())
+    }
+    
+    const interval = setInterval(saveAnimationTime, 500) // Save more frequently
+    
+    const handleBeforeUnload = () => {
+      saveAnimationTime()
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      saveAnimationTime() // Save one last time on unmount
+    }
+  }, [rssAnimationDelay])
+  
   // Set initial scroll position to skip top blank rows on first load
   useEffect(() => {
     const scrollElement = scrollRef.current
@@ -297,52 +341,140 @@ function App() {
     }
 
     const startAutoScroll = () => {
+      // Mark that auto-scroll is running
+      autoScrollRef.current.isAutoScrolling = true
+      
       const rowHeight = getRowHeight()
       const currentScroll = scrollElement.scrollTop
       
-      // Calculate which row we're currently at and snap to the next 4-row boundary
-      const currentRow = Math.round(currentScroll / rowHeight)
-      const targetRow = currentRow + 4
-      const targetScroll = targetRow * rowHeight
-      const startScroll = currentRow * rowHeight // Snap start position too
+      // Calculate current row position
+      const currentRow = currentScroll / rowHeight
       
-      // Set to exact start position to eliminate drift
-      scrollElement.scrollTop = startScroll
+      // Round to nearest 4-row boundary to avoid floating point issues
+      // If we're within 0.5 rows of a boundary, snap to it for calculation purposes
+      const roundedRow = Math.round(currentRow * 2) / 2 // Round to nearest 0.5
       
-      const duration = 8000 // 8 seconds to scroll 4 rows
-      const startTime = Date.now()
+      // Find which 4-row section we're in
+      const currentSection = Math.floor(roundedRow / 4)
+      const currentBoundary = currentSection * 4
+      
+      // Target is the next 4-row boundary
+      const targetBoundary = currentBoundary + 4
+      const targetScroll = targetBoundary * rowHeight
+      
+      // Start from current position (no snap)
+      const startScroll = currentScroll
+      
+      console.log('Auto-scroll calculation:', { 
+        currentScroll, 
+        rowHeight,
+        currentRow: currentRow.toFixed(4),
+        roundedRow: roundedRow.toFixed(2),
+        currentSection,
+        currentBoundary, 
+        targetBoundary,
+        targetScroll 
+      })
       
       // Calculate total rows (4 blank at top if shown + 50 channels + 4 blank at bottom)
       const totalRows = showTopBlanks ? 58 : 54
-      const maxScroll = rowHeight * totalRows
+      const bottomBlankStart = rowHeight * (showTopBlanks ? 54 : 50)
+      
+      // Check if target scroll would go into or past the bottom blank rows
+      let actualTargetScroll = targetScroll
+      
+      if (targetScroll >= bottomBlankStart && currentScroll < bottomBlankStart) {
+        // We're about to enter the blank rows, only scroll to the start of blanks
+        actualTargetScroll = bottomBlankStart
+      } else if (currentScroll >= bottomBlankStart) {
+        // Already in blank rows, continue scrolling 4 rows
+        actualTargetScroll = targetScroll
+      }
+      
+      // Calculate actual distance to scroll
+      const scrollDistance = actualTargetScroll - startScroll
+      const rowsToScroll = scrollDistance / rowHeight
+      
+      console.log('Scroll distance calculation:', {
+        startScroll,
+        actualTargetScroll,
+        scrollDistance,
+        rowsToScroll: rowsToScroll.toFixed(2)
+      })
+      
+      // If scroll distance is too small, something is wrong - don't scroll
+      if (scrollDistance < 1) {
+        console.error('Scroll distance too small, aborting auto-scroll')
+        autoScrollRef.current.isAutoScrolling = false
+        return
+      }
+      
+      // Adjust duration based on distance: 2 seconds per row
+      // This keeps the speed consistent whether scrolling 3.5 rows or 4 rows
+      const duration = Math.max(rowsToScroll * 2000, 1000) // Minimum 1 second
+      const startTime = Date.now()
 
       autoScrollRef.current.interval = setInterval(() => {
         const elapsed = Date.now() - startTime
         const progress = Math.min(elapsed / duration, 1)
         const easeProgress = progress * (2 - progress) // ease out
         
-        scrollElement.scrollTop = startScroll + (targetScroll - startScroll) * easeProgress
+        scrollElement.scrollTop = startScroll + scrollDistance * easeProgress
 
         if (progress >= 1) {
           clearInterval(autoScrollRef.current.interval)
           
-          // Check if we're in the bottom blank rows (only blank cells visible)
-          const finalScroll = scrollElement.scrollTop
-          const bottomBlankStart = rowHeight * (showTopBlanks ? 54 : 50)
+          // Mark that auto-scroll is done
+          autoScrollRef.current.isAutoScrolling = false
           
-          if (finalScroll >= bottomBlankStart) {
-            // We're in the blank area, reload the page with top blanks shown
-            sessionStorage.setItem('showTopBlanks', 'true')
-            setTimeout(() => {
+          // Check if we're in the bottom blank rows
+          const finalScroll = scrollElement.scrollTop
+          const maxScroll = scrollElement.scrollHeight - scrollElement.clientHeight
+          
+          console.log('Scroll check:', { 
+            finalScroll, 
+            bottomBlankStart, 
+            maxScroll,
+            showTopBlanks, 
+            rowsToScroll: rowsToScroll.toFixed(2) 
+          })
+          
+          // Check if we've reached the bottom blank rows OR we're near the end
+          const reachedBottom = finalScroll >= bottomBlankStart - 100 || finalScroll >= maxScroll - 100
+          
+          if (reachedBottom) {
+            // We're in the blank area, wait 5 seconds then reload
+            console.log('Reached bottom, waiting 5 seconds before reload...')
+            autoScrollRef.current.lastInteraction = Date.now()
+            
+            autoScrollRef.current.timeout = setTimeout(() => {
+              console.log('Triggering reload with top blanks')
+              sessionStorage.setItem('showTopBlanks', 'true')
               window.location.reload()
-            }, 100)
+            }, 5000) // 5 seconds (half time)
             return
           }
           
           // Wait 10 seconds before next scroll
+          // Update lastInteraction to current time so we know when this scroll completed
+          const scrollCompletedTime = Date.now()
+          autoScrollRef.current.lastInteraction = scrollCompletedTime
+          
+          console.log('Auto-scroll completed, waiting 10 seconds...')
+          
           autoScrollRef.current.timeout = setTimeout(() => {
-            if (Date.now() - autoScrollRef.current.lastInteraction >= 10000) {
+            const timeSinceLastInteraction = Date.now() - autoScrollRef.current.lastInteraction
+            console.log('Checking if should continue auto-scroll:', { 
+              timeSinceLastInteraction, 
+              shouldContinue: timeSinceLastInteraction >= 9900 // Allow 100ms tolerance
+            })
+            
+            // Check if user hasn't interacted in the last 10 seconds (with small tolerance)
+            if (timeSinceLastInteraction >= 9900) {
+              console.log('Continuing auto-scroll...')
               startAutoScroll()
+            } else {
+              console.log('User interacted, not continuing auto-scroll')
             }
           }, 10000)
         }
@@ -354,9 +486,6 @@ function App() {
       clearTimeout(autoScrollRef.current.timeout)
       clearInterval(autoScrollRef.current.interval)
       
-      // Clear the reload flag on user interaction
-      sessionStorage.removeItem('showTopBlanks')
-      
       // Start 10 second countdown
       autoScrollRef.current.timeout = setTimeout(() => {
         if (Date.now() - autoScrollRef.current.lastInteraction >= 10000) {
@@ -365,17 +494,44 @@ function App() {
       }, 10000)
     }
 
-    // Initial auto-scroll setup
-    resetAutoScroll()
+    // Check if we just reloaded from the bottom (showTopBlanks flag is set)
+    const justReloaded = showTopBlanks
+    
+    if (justReloaded) {
+      // Clear the reload flag
+      sessionStorage.removeItem('showTopBlanks')
+      // Start auto-scroll after 5 seconds (half time) for smooth loop
+      console.log('Just reloaded, waiting 5 seconds before first scroll...')
+      autoScrollRef.current.lastInteraction = Date.now()
+      autoScrollRef.current.timeout = setTimeout(() => {
+        console.log('Starting first auto-scroll after reload...')
+        startAutoScroll()
+      }, 5000) // 5 second delay (half time) before first scroll after reload
+    } else {
+      // Initial auto-scroll setup for normal page load
+      resetAutoScroll()
+    }
 
     // Reset on user interaction
     const handleInteraction = () => {
+      console.log('User interaction detected')
+      // Clear the reload flag on user interaction
+      sessionStorage.removeItem('showTopBlanks')
       resetAutoScroll()
+    }
+    
+    // Handle manual scroll - only reset if not auto-scrolling
+    const handleScroll = () => {
+      if (!autoScrollRef.current.isAutoScrolling) {
+        console.log('Manual scroll detected, resetting auto-scroll timer')
+        handleInteraction()
+      }
     }
 
     scrollElement.addEventListener('wheel', handleInteraction)
     scrollElement.addEventListener('touchstart', handleInteraction)
     scrollElement.addEventListener('mousedown', handleInteraction)
+    scrollElement.addEventListener('scroll', handleScroll, { passive: true })
 
     return () => {
       clearTimeout(autoScrollRef.current.timeout)
@@ -383,6 +539,7 @@ function App() {
       scrollElement.removeEventListener('wheel', handleInteraction)
       scrollElement.removeEventListener('touchstart', handleInteraction)
       scrollElement.removeEventListener('mousedown', handleInteraction)
+      scrollElement.removeEventListener('scroll', handleScroll)
     }
   }, [])
 
@@ -518,8 +675,8 @@ function App() {
   const typicalRowHeight = 'calc((50vh - 4vw - 6px) / 4)'
   
   const cellStyle = {
-    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-    fontWeight: 'bold',
+    fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+    fontWeight: 700,
     fontStretch: 'condensed',
     fontSize: 'clamp(20px, 2vw, 60px)',
     color: 'white',
@@ -628,8 +785,8 @@ function App() {
             zIndex: 0
           }} />
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -640,8 +797,8 @@ function App() {
             {featuredStream ? featuredStream.categoryName : 'Category'}
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: '#E3E07D',
@@ -652,8 +809,8 @@ function App() {
             {featuredStream ? featuredStream.user_name : 'StreamerName'}
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -664,8 +821,8 @@ function App() {
             {today}
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -733,7 +890,7 @@ function App() {
             pointerEvents: 'none'
           }}
         >
-          {/* Filter 1 & 2 merged button - spans 2 cells */}
+          {/* Ad Banner Button - spans 2 cells */}
           <button style={{
             ...headerCellStyle,
             position: 'relative',
@@ -742,7 +899,9 @@ function App() {
             border: 'none',
             background: 'none',
             width: `calc(${typicalColumnWidth} * 2)`,
-            minWidth: `calc(${typicalColumnWidth} * 2)`
+            minWidth: `calc(${typicalColumnWidth} * 2)`,
+            overflow: 'hidden',
+            padding: 0
           }}>
             <div 
               className="filter-button-bg"
@@ -761,7 +920,31 @@ function App() {
                 transition: 'background-color 0.2s ease'
               }} 
             />
-            <span style={{ position: 'relative', zIndex: 1 }}>ADD HERE</span>
+            <img 
+              src="/images/ad-banner.png"
+              alt="Advertisement"
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                width: '92%',
+                height: '75%',
+                objectFit: 'contain',
+                pointerEvents: 'none'
+              }}
+              onError={(e) => {
+                // Fallback to text if image fails to load
+                e.target.style.display = 'none'
+                e.target.nextSibling.style.display = 'block'
+              }}
+            />
+            <span style={{ 
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 1,
+              display: 'none'
+            }}>ADD HERE</span>
           </button>
           {/* RSS Feed button - spans 2 cells with scrolling text */}
           <button style={{
@@ -804,11 +987,16 @@ function App() {
               alignItems: 'center',
               overflow: 'hidden'
             }}>
-              <span className="rss-scroll" style={{ 
-                whiteSpace: 'nowrap',
-                display: 'inline-block',
-                animation: 'scroll-left 60s linear infinite'
-              }}>
+              <span 
+                ref={rssScrollRef}
+                className="rss-scroll" 
+                style={{ 
+                  whiteSpace: 'nowrap',
+                  display: 'inline-block',
+                  animation: 'scroll-left 60s linear infinite',
+                  animationDelay: `${rssAnimationDelay}s`
+                }}
+              >
                 RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE: Weather forecast for the week ahead /// RSS HERE: Entertainment news and celebrity updates /// RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE
               </span>
             </div>
@@ -819,8 +1007,8 @@ function App() {
             onClick={user ? handleLogout : handleLogin}
             disabled={isAuthenticating}
             style={{
-              fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-              fontWeight: 'bold',
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
               fontStretch: 'condensed',
               fontSize: 'clamp(16px, 1.6vw, 48px)',
               color: 'white',
@@ -963,6 +1151,21 @@ function App() {
           {rowLayouts.map((blocks, rowIndex) => {
             const isBlankRow = blocks[0]?.isBlank
             
+            // Determine which ad image to show for blank rows
+            // Top 4 blank rows (if shown): rows 0-3 -> ads 1-4
+            // Bottom 4 blank rows: last 4 rows -> ads 1-4 (matching top for seamless loop)
+            let adImageNumber = null
+            if (isBlankRow) {
+              if (showTopBlanks && rowIndex < 4) {
+                // Top blank rows
+                adImageNumber = rowIndex + 1
+              } else if (rowIndex >= (showTopBlanks ? 54 : 50)) {
+                // Bottom blank rows - map to same ads as top
+                const bottomRowOffset = rowIndex - (showTopBlanks ? 54 : 50)
+                adImageNumber = bottomRowOffset + 1
+              }
+            }
+            
             // Get the category for this row (accounting for top blank rows)
             const categoryIndex = showTopBlanks ? rowIndex - 4 : rowIndex
             const category = categories[categoryIndex]
@@ -1021,6 +1224,20 @@ function App() {
                           transition: 'background-color 0.2s ease'
                         }} 
                       />
+                      {adImageNumber && (
+                        <img 
+                          src={`/images/ad-row-${adImageNumber}.png`}
+                          alt={`Advertisement ${adImageNumber}`}
+                          style={{
+                            position: 'relative',
+                            zIndex: 1,
+                            width: '95%',
+                            height: '80%',
+                            objectFit: 'contain',
+                            pointerEvents: 'none'
+                          }}
+                        />
+                      )}
                     </button>
                   )
                 }
@@ -1031,8 +1248,8 @@ function App() {
                     key={block.id} 
                     className="show-button"
                     style={{
-                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-                      fontWeight: 'bold',
+                      fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                      fontWeight: 700,
                       fontStretch: 'condensed',
                       fontSize: 'clamp(20px, 2vw, 60px)',
                       color: 'white',
@@ -1049,7 +1266,7 @@ function App() {
                       position: 'relative',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      padding: '0 0.5vw',
+                      padding: '0 0.5vw 0 1vw',
                       cursor: 'pointer',
                       background: 'none'
                     }}

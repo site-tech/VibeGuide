@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { getTopCategories } from './lib/api'
 
 function App() {
   const [channelNumber] = useState(Math.floor(Math.random() * 100) + 1)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [categories, setCategories] = useState([])
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
@@ -116,6 +119,26 @@ function App() {
     
     return allRows
   })
+
+  // Fetch categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setIsLoadingCategories(true)
+        const data = await getTopCategories(50)
+        console.log('Categories loaded:', data.length, 'categories')
+        console.log('First 5 categories:', data.slice(0, 5).map(c => c.name))
+        setCategories(data)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+        // Keep empty array on error
+      } finally {
+        setIsLoadingCategories(false)
+      }
+    }
+    
+    fetchCategories()
+  }, [])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -708,6 +731,17 @@ function App() {
             const isBlank = isTopBlank || isBottomBlank
             const channelNum = isBlank ? '' : (i - channelRowOffset + 1)
             
+            // Get category name for this channel
+            const categoryIndex = i - channelRowOffset
+            const categoryName = !isBlank && categories[categoryIndex] 
+              ? categories[categoryIndex].name 
+              : 'CATEGORY'
+            
+            // Debug logging for first few rows
+            if (i < 5 && categories.length > 0) {
+              console.log(`Row ${i}: channelNum=${channelNum}, categoryIndex=${categoryIndex}, categoryName=${categoryName}`)
+            }
+            
             return (
               <div key={i} style={{
                 ...firstColumnStyle, 
@@ -743,7 +777,9 @@ function App() {
                       textOverflow: 'ellipsis',
                       width: '100%',
                       textAlign: 'center'
-                    }}>CATEGORY</span>
+                    }}>
+                      {isLoadingCategories ? 'Loading...' : categoryName}
+                    </span>
                   </>
                 )}
               </div>

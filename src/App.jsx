@@ -939,20 +939,22 @@ function App() {
           }}
         >
           {/* Ad Banner Button - spans 2 cells */}
-          <button style={{
-            ...headerCellStyle,
-            position: 'relative',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-            border: 'none',
-            background: 'none',
-            width: `calc(${typicalColumnWidth} * 2)`,
-            minWidth: `calc(${typicalColumnWidth} * 2)`,
-            overflow: 'hidden',
-            padding: 0
-          }}>
+          <button 
+            onClick={() => window.open('https://kiroween.devpost.com/?ref_feature=challenge&ref_medium=your-open-hackathons&ref_content=Submissions+open', '_blank')}
+            style={{
+              ...headerCellStyle,
+              position: 'relative',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+              border: 'none',
+              background: 'none',
+              width: `calc(${typicalColumnWidth} * 2)`,
+              minWidth: `calc(${typicalColumnWidth} * 2)`,
+              overflow: 'hidden',
+              padding: 0
+            }}
+          >
             <div 
-              className="filter-button-bg"
               style={{
                 position: 'absolute',
                 top: 0,
@@ -964,8 +966,7 @@ function App() {
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
                 borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
                 borderRight: '5px solid rgba(0, 0, 0, 0.8)',
-                zIndex: -1,
-                transition: 'background-color 0.2s ease'
+                zIndex: -1
               }} 
             />
             <img 

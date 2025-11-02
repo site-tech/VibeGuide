@@ -62,6 +62,13 @@ func (m *mockTwitchClient) GetUserInfo(ctx context.Context, accessToken string) 
 	return &twitch.User{ID: "test_user", Login: "test_login"}, nil
 }
 
+func (m *mockTwitchClient) GetStreams(ctx context.Context, params twitch.StreamsQueryParams) (*twitch.StreamsResponse, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return m.streams, nil
+}
+
 // mockTwitchClientWithLimit implements twitch.Client for testing and tracks the limit parameter
 type mockTwitchClientWithLimit struct {
 	streams       *twitch.StreamsResponse
@@ -114,6 +121,13 @@ func (m *mockTwitchClientWithLimit) GetUserInfo(ctx context.Context, accessToken
 		return nil, fmt.Errorf("%s", m.errMsg)
 	}
 	return &twitch.User{ID: "test_user", Login: "test_login"}, nil
+}
+
+func (m *mockTwitchClientWithLimit) GetStreams(ctx context.Context, params twitch.StreamsQueryParams) (*twitch.StreamsResponse, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return m.streams, nil
 }
 
 // createTestStreamsResponse creates a sample streams response for testing
@@ -947,6 +961,262 @@ func TestGetCategoriesHandler_TwitchAPIError(t *testing.T) {
 				t.Error("Expected non-empty error message")
 			}
 		})
+	}
+}
+
+func TestGetStreamsHandler_Success(t *testing.T) {
+	// Create mock client with successful response
+	mockClient := &mockTwitchClient{
+		streams:   createTestStreamsResponse(),
+		shouldErr: false,
+	}
+
+	// Setup router
+	router := setupTestRouter(mockClient)
+
+	// Create test request
+	req := httptest.NewRequest("GET", "/twitch/streams", nil)
+	w := httptest.NewRecorder()
+
+	// Execute request
+	router.ServeHTTP(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Check content type
+	expectedContentType := "application/json"
+	if contentType := w.Header().Get("Content-Type"); contentType != expectedContentType {
+		t.Errorf("Expected Content-Type %s, got %s", expectedContentType, contentType)
+	}
+
+	// Parse response
+	var response mytypes.APIHandlerResp
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse response JSON: %v", err)
+	}
+
+	// Verify response structure
+	if response.TransactionId == "" {
+		t.Error("Expected transaction_id to be set")
+	}
+	if response.ApiVersion != "v1" {
+		t.Errorf("Expected api_version 'v1', got '%s'", response.ApiVersion)
+	}
+
+	// Verify streams data
+	streamsData, ok := response.Data.(*twitch.StreamsResponse)
+	if !ok {
+		// Try to unmarshal the data field as StreamsResponse
+		dataBytes, err := json.Marshal(response.Data)
+		if err != nil {
+			t.Fatalf("Failed to marshal response data: %v", err)
+		}
+
+		var streams twitch.StreamsResponse
+		if err := json.Unmarshal(dataBytes, &streams); err != nil {
+			t.Fatalf("Failed to unmarshal streams data: %v", err)
+		}
+		streamsData = &streams
+	}
+
+	if len(streamsData.Data) != 2 {
+		t.Errorf("Expected 2 streams, got %d", len(streamsData.Data))
+	}
+}
+
+func TestGetStreamsHandler_WithParameters(t *testing.T) {
+	tests := []struct {
+		name        string
+		queryParams string
+		expectError bool
+	}{
+		{
+			name:        "With limit parameter",
+			queryParams: "?limit=10",
+			expectError: false,
+		},
+		{
+			name:        "With game_id parameter",
+			queryParams: "?game_id=12345",
+			expectError: false,
+		},
+		{
+			name:        "With sort parameter",
+			queryParams: "?sort=recent",
+			expectError: false,
+		},
+		{
+			name:        "With all parameters",
+			queryParams: "?limit=5&game_id=67890&sort=viewers",
+			expectError: false,
+		},
+		{
+			name:        "With invalid limit",
+			queryParams: "?limit=invalid",
+			expectError: true,
+		},
+		{
+			name:        "With invalid limit range",
+			queryParams: "?limit=200",
+			expectError: true,
+		},
+		{
+			name:        "With invalid game_id",
+			queryParams: "?game_id=invalid",
+			expectError: true,
+		},
+		{
+			name:        "With invalid sort",
+			queryParams: "?sort=invalid",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockTwitchClient{
+				streams:   createTestStreamsResponse(),
+				shouldErr: false,
+			}
+
+			router := setupTestRouter(mockClient)
+
+			req := httptest.NewRequest("GET", "/twitch/streams"+tt.queryParams, nil)
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if tt.expectError {
+				if w.Code == http.StatusOK {
+					t.Errorf("Expected error status code, got %d", w.Code)
+				}
+			} else {
+				if w.Code != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+				}
+			}
+		})
+	}
+}
+
+func TestGetStreamsHandler_ErrorScenarios(t *testing.T) {
+	tests := []struct {
+		name               string
+		errorMsg           string
+		expectedStatusCode int
+	}{
+		{
+			name:               "OAuth error",
+			errorMsg:           "failed to get OAuth token: oauth error",
+			expectedStatusCode: http.StatusServiceUnavailable,
+		},
+		{
+			name:               "Twitch API 401 error",
+			errorMsg:           "twitch API returned error status 401: Unauthorized",
+			expectedStatusCode: http.StatusServiceUnavailable,
+		},
+		{
+			name:               "Twitch API 404 error",
+			errorMsg:           "twitch API returned error status 404: Not Found",
+			expectedStatusCode: http.StatusNotFound,
+		},
+		{
+			name:               "Twitch API 429 error",
+			errorMsg:           "twitch API returned error status 429: Too Many Requests",
+			expectedStatusCode: http.StatusTooManyRequests,
+		},
+		{
+			name:               "Network error",
+			errorMsg:           "failed to make request to Twitch API: connection timeout",
+			expectedStatusCode: http.StatusBadGateway,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockTwitchClient{
+				shouldErr: true,
+				errMsg:    tt.errorMsg,
+			}
+
+			router := setupTestRouter(mockClient)
+
+			req := httptest.NewRequest("GET", "/twitch/streams", nil)
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatusCode {
+				t.Errorf("Expected status code %d, got %d", tt.expectedStatusCode, w.Code)
+			}
+
+			// Parse error response
+			var response mytypes.APIHandlerResp
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to parse error response JSON: %v", err)
+			}
+
+			// Verify error response structure
+			if response.TransactionId == "" {
+				t.Error("Expected transaction_id to be set in error response")
+			}
+			if response.ApiVersion != "v1" {
+				t.Errorf("Expected api_version 'v1', got '%s'", response.ApiVersion)
+			}
+		})
+	}
+}
+
+func TestGetStreamsHandler_BackwardCompatibility(t *testing.T) {
+	// Test that the new endpoint maintains the same response structure as the old one
+	mockClient := &mockTwitchClient{
+		streams:   createTestStreamsResponse(),
+		shouldErr: false,
+	}
+
+	router := setupTestRouter(mockClient)
+
+	// Test new endpoint
+	reqNew := httptest.NewRequest("GET", "/twitch/streams?limit=20", nil)
+	wNew := httptest.NewRecorder()
+	router.ServeHTTP(wNew, reqNew)
+
+	// Test old endpoint
+	reqOld := httptest.NewRequest("GET", "/twitch/streams/top?count=20", nil)
+	wOld := httptest.NewRecorder()
+	router.ServeHTTP(wOld, reqOld)
+
+	// Both should return 200 OK
+	if wNew.Code != http.StatusOK {
+		t.Errorf("New endpoint: Expected status code %d, got %d", http.StatusOK, wNew.Code)
+	}
+	if wOld.Code != http.StatusOK {
+		t.Errorf("Old endpoint: Expected status code %d, got %d", http.StatusOK, wOld.Code)
+	}
+
+	// Parse both responses
+	var responseNew, responseOld mytypes.APIHandlerResp
+	if err := json.Unmarshal(wNew.Body.Bytes(), &responseNew); err != nil {
+		t.Fatalf("Failed to parse new endpoint response JSON: %v", err)
+	}
+	if err := json.Unmarshal(wOld.Body.Bytes(), &responseOld); err != nil {
+		t.Fatalf("Failed to parse old endpoint response JSON: %v", err)
+	}
+
+	// Verify both have the same response structure
+	if responseNew.ApiVersion != responseOld.ApiVersion {
+		t.Errorf("API versions don't match: new=%s, old=%s", responseNew.ApiVersion, responseOld.ApiVersion)
+	}
+
+	// Both should have transaction IDs
+	if responseNew.TransactionId == "" {
+		t.Error("New endpoint: Expected transaction_id to be set")
+	}
+	if responseOld.TransactionId == "" {
+		t.Error("Old endpoint: Expected transaction_id to be set")
 	}
 }
 

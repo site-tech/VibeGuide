@@ -6,8 +6,8 @@ The Twitch client handler will be implemented as a new package (`pkg/twitch`) th
 
 The implementation will focus on:
 - OAuth 2.0 Client Credentials flow for authentication
-- Methods to fetch top streams and popular game categories from Twitch API
-- REST endpoints (`/v1/twitch/streams/top` and `/v1/twitch/games/top`) to expose this functionality
+- Methods to fetch top streams and game categories from Twitch API
+- REST endpoints (`/v1/twitch/streams/top` and `/v1/twitch/categories`) to expose this functionality
 - Simple error handling and JSON response formatting
 
 ## Architecture
@@ -70,12 +70,12 @@ type Stream struct {
     StartedAt    string   `json:"started_at"`
     Language     string   `json:"language"`
     ThumbnailURL string   `json:"thumbnail_url"`
-    Tags         []string `json:"tags"`
+    Tags        []string  `json:"tags"`
 }
 
 func NewClient(clientID, clientSecret string) *Client
 func (c *Client) GetTopStreams(ctx context.Context, limit int) (*StreamsResponse, error)
-func (c *Client) GetTopGames(ctx context.Context, limit int) (*CategoriesResponse, error)
+func (c *Client) GetCategories(ctx context.Context, limit int, sortBy string) (*CategoriesResponse, error)
 ```
 
 ### OAuth Manager (`pkg/twitch/oauth.go`)
@@ -120,13 +120,14 @@ type VibeConfig struct {
 ```go
 func twitchRouter(twitchClient *twitch.Client) http.Handler
 func getTopStreamsHandler(twitchClient *twitch.Client) http.HandlerFunc
-func getTopGamesHandler(twitchClient *twitch.Client) http.HandlerFunc
+func getCategoriesHandler(twitchClient *twitch.Client) http.HandlerFunc
 ```
 
 #### Endpoint Design
 - `/v1/twitch/streams/top` - Returns top streams
-- `/v1/twitch/games/top` - Returns top game categories (renamed from categories for clarity)
-- Both endpoints support `?limit=N` query parameter to control result count
+- `/v1/twitch/categories` - Returns game categories with query parameter support:
+  - `?sort=top` - Sort by top categories (most viewed)
+  - `?limit=N` - Control result count (default: 20, max: 100)
 
 ## Data Models
 
@@ -197,11 +198,13 @@ Required environment variables:
 - Base URL: `https://api.twitch.tv/helix`
 - OAuth URL: `https://id.twitch.tv/oauth2/token`
 - Top Streams: `/streams?first={limit}`
-- Top Games: `/games/top?first={limit}`
+- Categories: `/games/top?first={limit}` (when sort=top)
 
 ### Default Behavior
 - Default limit for top streams: 100
-- Maximum limit: 1000
+- Default limit for categories: 20
+- Maximum limit: 100 (for categories), 1000 (for streams)
+- Default sort for categories: "top" (by viewer count)
 - HTTP client timeout: 10 seconds
 - Token stored in memory only (no persistence)
 

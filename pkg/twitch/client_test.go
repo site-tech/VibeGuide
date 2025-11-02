@@ -631,3 +631,159 @@ func TestGetCategories_NetworkError(t *testing.T) {
 		t.Errorf("Expected error message to start with '%s', got: %s", expectedErrMsg, err.Error())
 	}
 }
+func TestGetStreams_Success(t *testing.T) {
+	// Load test data
+	testData, err := os.ReadFile("testdata/sample_streams_response.json")
+	if err != nil {
+		t.Fatalf("Failed to load test data: %v", err)
+	}
+
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request headers
+		if r.Header.Get("Authorization") != "Bearer test_token" {
+			t.Errorf("Expected Authorization header 'Bearer test_token', got '%s'", r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("Client-Id") != "test_client_id" {
+			t.Errorf("Expected Client-Id header 'test_client_id', got '%s'", r.Header.Get("Client-Id"))
+		}
+
+		// Verify query parameters
+		if r.URL.Query().Get("first") != "10" {
+			t.Errorf("Expected 'first' query parameter '10', got '%s'", r.URL.Query().Get("first"))
+		}
+		if r.URL.Query().Get("game_id") != "12345" {
+			t.Errorf("Expected 'game_id' query parameter '12345', got '%s'", r.URL.Query().Get("game_id"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(testData)
+	}))
+	defer server.Close()
+
+	// Create client with mock server URL
+	client := createTestClient("test_token", false)
+	client.httpClient = &http.Client{
+		Transport: &mockTransport{
+			server: server,
+		},
+		Timeout: HTTPTimeout * time.Second,
+	}
+
+	ctx := context.Background()
+	params := StreamsQueryParams{
+		Limit:  10,
+		GameID: "12345",
+		Sort:   "viewers",
+	}
+	result, err := client.GetStreams(ctx, params)
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected result, got nil")
+	}
+
+	if len(result.Data) != 2 {
+		t.Errorf("Expected 2 streams, got %d", len(result.Data))
+	}
+}
+
+func TestGetStreams_ParameterValidation(t *testing.T) {
+	client := createTestClient("test_token", false)
+
+	ctx := context.Background()
+
+	// Test invalid limit
+	params := StreamsQueryParams{
+		Limit: 200, // Above max limit
+	}
+	result, err := client.GetStreams(ctx, params)
+
+	if err == nil {
+		t.Fatal("Expected error for invalid limit, got nil")
+	}
+
+	if result != nil {
+		t.Errorf("Expected nil result on validation error, got: %v", result)
+	}
+
+	expectedErrMsg := "invalid parameters"
+	if len(err.Error()) < len(expectedErrMsg) || err.Error()[:len(expectedErrMsg)] != expectedErrMsg {
+		t.Errorf("Expected error message to start with '%s', got: %s", expectedErrMsg, err.Error())
+	}
+}
+
+func TestGetStreams_RecentSorting(t *testing.T) {
+	// Create test data with different timestamps for sorting
+	testDataWithTimestamps := `{
+		"data": [
+			{
+				"id": "1",
+				"user_login": "user1",
+				"started_at": "2023-01-01T10:00:00Z",
+				"viewer_count": 100
+			},
+			{
+				"id": "2", 
+				"user_login": "user2",
+				"started_at": "2023-01-01T12:00:00Z",
+				"viewer_count": 50
+			},
+			{
+				"id": "3",
+				"user_login": "user3", 
+				"started_at": "2023-01-01T11:00:00Z",
+				"viewer_count": 75
+			}
+		]
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(testDataWithTimestamps))
+	}))
+	defer server.Close()
+
+	client := createTestClient("test_token", false)
+	client.httpClient = &http.Client{
+		Transport: &mockTransport{
+			server: server,
+		},
+		Timeout: HTTPTimeout * time.Second,
+	}
+
+	ctx := context.Background()
+	params := StreamsQueryParams{
+		Limit: 10,
+		Sort:  "recent",
+	}
+	result, err := client.GetStreams(ctx, params)
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected result, got nil")
+	}
+
+	if len(result.Data) != 3 {
+		t.Errorf("Expected 3 streams, got %d", len(result.Data))
+	}
+
+	// Verify sorting by most recent first (user2 should be first with 12:00:00Z)
+	if result.Data[0].ID != "2" {
+		t.Errorf("Expected first stream ID '2' (most recent), got '%s'", result.Data[0].ID)
+	}
+	if result.Data[1].ID != "3" {
+		t.Errorf("Expected second stream ID '3', got '%s'", result.Data[1].ID)
+	}
+	if result.Data[2].ID != "1" {
+		t.Errorf("Expected third stream ID '1' (oldest), got '%s'", result.Data[2].ID)
+	}
+}

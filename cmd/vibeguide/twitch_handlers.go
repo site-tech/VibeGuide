@@ -19,6 +19,7 @@ import (
 func twitchRouter(twitchClient twitch.Client) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/streams/top", getTopStreamsHandler(twitchClient))
+	r.Get("/streams", getStreamsHandler(twitchClient))
 	r.Get("/categories", getCategoriesHandler(twitchClient))
 	return r
 }
@@ -73,6 +74,99 @@ func getTopStreamsHandler(twitchClient twitch.Client) http.HandlerFunc {
 			Str("api_version", apiVersion).
 			Int("stream_count", len(streamsResponse.Data)).
 			Msg("getTopStreamsHandler completed successfully")
+	}
+}
+
+// getStreamsHandler handles requests to fetch streams from Twitch with flexible query parameters
+func getStreamsHandler(twitchClient twitch.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tId := middleware.GetReqID(ctx)
+		apiVersion := ctx.Value(apivctx).(string)
+
+		zlog.Info().Msgf("(%s) getStreamsHandler started", tId)
+
+		// Parse query parameters
+		params := twitch.StreamsQueryParams{
+			Limit:  twitch.DefaultQueryLimit, // Default value
+			GameID: "",                       // Optional
+			Sort:   "viewers",                // Default value
+		}
+
+		// Parse limit parameter
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err != nil {
+				zlog.Error().
+					Err(err).
+					Str("transaction_id", tId).
+					Str("api_version", apiVersion).
+					Str("limit_param", limitStr).
+					Msg("Invalid limit parameter provided")
+
+				handleErr(w, r, fmt.Errorf("invalid limit parameter: must be a number"), http.StatusBadRequest)
+				return
+			} else {
+				params.Limit = parsedLimit
+			}
+		}
+
+		// Parse game_id parameter
+		if gameID := r.URL.Query().Get("game_id"); gameID != "" {
+			params.GameID = gameID
+		}
+
+		// Parse sort parameter
+		if sort := r.URL.Query().Get("sort"); sort != "" {
+			params.Sort = sort
+		}
+
+		// Validate parameters
+		if err := twitch.ValidateStreamsParams(params); err != nil {
+			zlog.Error().
+				Err(err).
+				Str("transaction_id", tId).
+				Str("api_version", apiVersion).
+				Interface("params", params).
+				Msg("Invalid parameters provided")
+
+			handleErr(w, r, err, http.StatusBadRequest)
+			return
+		}
+
+		// Fetch streams from Twitch API
+		streamsResponse, err := twitchClient.GetStreams(ctx, params)
+		if err != nil {
+			// Determine appropriate HTTP status code based on error type
+			statusCode := determineErrorStatusCode(err)
+
+			zlog.Error().
+				Err(err).
+				Str("transaction_id", tId).
+				Str("api_version", apiVersion).
+				Int("status_code", statusCode).
+				Interface("params", params).
+				Msg("Failed to fetch streams from Twitch API")
+
+			handleErr(w, r, err, statusCode)
+			return
+		}
+
+		// Build successful response
+		resp := mytypes.APIHandlerResp{
+			TransactionId: tId,
+			ApiVersion:    apiVersion,
+			Data:          streamsResponse,
+		}
+
+		w.WriteHeader(http.StatusOK)
+		render.JSON(w, r, resp)
+
+		zlog.Info().
+			Str("transaction_id", tId).
+			Str("api_version", apiVersion).
+			Int("stream_count", len(streamsResponse.Data)).
+			Interface("params", params).
+			Msg("getStreamsHandler completed successfully")
 	}
 }
 

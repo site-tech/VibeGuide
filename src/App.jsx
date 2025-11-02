@@ -11,11 +11,13 @@ function App() {
   const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
   const [isLoadingStreams, setIsLoadingStreams] = useState(false)
   const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
+  const [isAutoRotating, setIsAutoRotating] = useState(true) // Auto-rotate streams every 90 seconds
   const [user, setUser] = useState(null) // Twitch user data
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now(), isAutoScrolling: false })
+  const streamRotationRef = useRef(null) // Timer for auto-rotating streams
   const rssScrollRef = useRef(null)
   
   // Check if we should show top blank rows (after reload)
@@ -271,6 +273,52 @@ function App() {
     
     fetchAllStreams()
   }, [categories, categoryStreams])
+
+  // Auto-rotate featured stream every 90 seconds
+  useEffect(() => {
+    if (!isAutoRotating || Object.keys(categoryStreams).length === 0) {
+      return
+    }
+
+    const rotateStream = () => {
+      // Build array of all streams
+      const allStreams = []
+      categories.forEach((category, categoryIndex) => {
+        const streams = categoryStreams[category.id] || []
+        streams.forEach(stream => {
+          allStreams.push({
+            ...stream,
+            categoryName: category.name,
+            categoryRank: categoryIndex + 1
+          })
+        })
+      })
+
+      if (allStreams.length > 0) {
+        // Pick a random stream different from current one
+        let newStream
+        if (allStreams.length === 1) {
+          newStream = allStreams[0]
+        } else {
+          do {
+            const randomIndex = Math.floor(Math.random() * allStreams.length)
+            newStream = allStreams[randomIndex]
+          } while (featuredStream && newStream.user_login === featuredStream.user_login && allStreams.length > 1)
+        }
+        
+        setFeaturedStream(newStream)
+      }
+    }
+
+    // Start rotation timer
+    streamRotationRef.current = setInterval(rotateStream, 90000) // 90 seconds
+
+    return () => {
+      if (streamRotationRef.current) {
+        clearInterval(streamRotationRef.current)
+      }
+    }
+  }, [isAutoRotating, categoryStreams, categories, featuredStream])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -861,7 +909,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            {featuredStream ? `Channel #${featuredStream.categoryRank}` : 'Channel'}
+            {featuredStream ? `Channel ${featuredStream.categoryRank}` : 'Channel'}
           </div>
         </div>
       </div>
@@ -922,20 +970,22 @@ function App() {
           }}
         >
           {/* Ad Banner Button - spans 2 cells */}
-          <button style={{
-            ...headerCellStyle,
-            position: 'relative',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-            border: 'none',
-            background: 'none',
-            width: `calc(${typicalColumnWidth} * 2)`,
-            minWidth: `calc(${typicalColumnWidth} * 2)`,
-            overflow: 'hidden',
-            padding: 0
-          }}>
+          <button 
+            onClick={() => window.open('https://kiroween.devpost.com/?ref_feature=challenge&ref_medium=your-open-hackathons&ref_content=Submissions+open', '_blank')}
+            style={{
+              ...headerCellStyle,
+              position: 'relative',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+              border: 'none',
+              background: 'none',
+              width: `calc(${typicalColumnWidth} * 2)`,
+              minWidth: `calc(${typicalColumnWidth} * 2)`,
+              overflow: 'hidden',
+              padding: 0
+            }}
+          >
             <div 
-              className="filter-button-bg"
               style={{
                 position: 'absolute',
                 top: 0,
@@ -1325,11 +1375,30 @@ function App() {
                   )
                 }
                 
+                // Get the stream for this block
+                const stream = streams && streams[block.streamIndex]
+                
+                // Handle stream click
+                const handleStreamClick = () => {
+                  if (stream && category) {
+                    // Disable auto-rotation when user manually selects a stream
+                    setIsAutoRotating(false)
+                    
+                    setFeaturedStream({
+                      ...stream,
+                      categoryName: category.name,
+                      categoryRank: categoryIndex + 1
+                    })
+                  }
+                }
+                
                 // Regular show blocks as buttons
                 return (
                   <button 
                     key={block.id} 
                     className="show-button"
+                    onClick={handleStreamClick}
+                    disabled={!stream}
                     style={{
                       fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
                       fontWeight: 700,
@@ -1351,8 +1420,9 @@ function App() {
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       padding: '0 0.5vw 0 1vw',
-                      cursor: 'pointer',
-                      background: 'none'
+                      cursor: stream ? 'pointer' : 'default',
+                      background: 'none',
+                      opacity: stream ? 1 : 0.6
                     }}
                   >
                     <div 

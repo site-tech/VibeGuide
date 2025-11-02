@@ -159,37 +159,52 @@ function App() {
       const rowHeight = getRowHeight()
       const currentScroll = scrollElement.scrollTop
       
-      // Calculate which row we're currently at and snap to the next 4-row boundary
-      const currentRow = Math.round(currentScroll / rowHeight)
-      const targetRow = currentRow + 4
+      // Don't snap - start from wherever the user left it
+      const startScroll = currentScroll
+      
+      // Calculate the next 4-row boundary from current position
+      const currentRow = currentScroll / rowHeight
+      const targetRow = Math.ceil(currentRow) + 4 // Round up to next row, then add 4
       const targetScroll = targetRow * rowHeight
-      const startScroll = currentRow * rowHeight // Snap start position too
-      
-      // Set to exact start position to eliminate drift
-      scrollElement.scrollTop = startScroll
-      
-      const duration = 8000 // 8 seconds to scroll 4 rows
-      const startTime = Date.now()
       
       // Calculate total rows (4 blank at top if shown + 50 channels + 4 blank at bottom)
       const totalRows = showTopBlanks ? 58 : 54
-      const maxScroll = rowHeight * totalRows
+      const bottomBlankStart = rowHeight * (showTopBlanks ? 54 : 50)
+      
+      // Check if target scroll would go into or past the bottom blank rows
+      let actualTargetScroll = targetScroll
+      
+      if (targetScroll >= bottomBlankStart && currentScroll < bottomBlankStart) {
+        // We're about to enter the blank rows, only scroll to the start of blanks
+        actualTargetScroll = bottomBlankStart
+      } else if (currentScroll >= bottomBlankStart) {
+        // Already in blank rows, continue scrolling 4 rows
+        actualTargetScroll = targetScroll
+      }
+      
+      // Calculate actual distance to scroll
+      const scrollDistance = actualTargetScroll - startScroll
+      const rowsToScroll = scrollDistance / rowHeight
+      
+      // Adjust duration based on distance: 2 seconds per row
+      // This keeps the speed consistent whether scrolling 3.5 rows or 4 rows
+      const duration = Math.max(rowsToScroll * 2000, 1000) // Minimum 1 second
+      const startTime = Date.now()
 
       autoScrollRef.current.interval = setInterval(() => {
         const elapsed = Date.now() - startTime
         const progress = Math.min(elapsed / duration, 1)
         const easeProgress = progress * (2 - progress) // ease out
         
-        scrollElement.scrollTop = startScroll + (targetScroll - startScroll) * easeProgress
+        scrollElement.scrollTop = startScroll + scrollDistance * easeProgress
 
         if (progress >= 1) {
           clearInterval(autoScrollRef.current.interval)
           
-          // Check if we're in the bottom blank rows (only blank cells visible)
+          // Check if we're in the bottom blank rows
           const finalScroll = scrollElement.scrollTop
-          const bottomBlankStart = rowHeight * (showTopBlanks ? 54 : 50)
           
-          console.log('Scroll check:', { finalScroll, bottomBlankStart, showTopBlanks })
+          console.log('Scroll check:', { finalScroll, bottomBlankStart, showTopBlanks, rowsToScroll: rowsToScroll.toFixed(2) })
           
           if (finalScroll >= bottomBlankStart) {
             // We're in the blank area, reload the page with top blanks shown
@@ -380,8 +395,8 @@ function App() {
   const typicalRowHeight = 'calc((50vh - 4vw - 6px) / 4)'
   
   const cellStyle = {
-    fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-    fontWeight: 'bold',
+    fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+    fontWeight: 700,
     fontStretch: 'condensed',
     fontSize: 'clamp(20px, 2vw, 60px)',
     color: 'white',
@@ -459,8 +474,8 @@ function App() {
             zIndex: 0
           }} />
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -471,8 +486,8 @@ function App() {
             Category
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: '#E3E07D',
@@ -483,8 +498,8 @@ function App() {
             "StreamerName"
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -495,8 +510,8 @@ function App() {
             {today}
           </div>
           <div style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -564,7 +579,7 @@ function App() {
             pointerEvents: 'none'
           }}
         >
-          {/* Filter 1 & 2 merged button - spans 2 cells */}
+          {/* Ad Banner Button - spans 2 cells */}
           <button style={{
             ...headerCellStyle,
             position: 'relative',
@@ -573,7 +588,9 @@ function App() {
             border: 'none',
             background: 'none',
             width: `calc(${typicalColumnWidth} * 2)`,
-            minWidth: `calc(${typicalColumnWidth} * 2)`
+            minWidth: `calc(${typicalColumnWidth} * 2)`,
+            overflow: 'hidden',
+            padding: 0
           }}>
             <div 
               className="filter-button-bg"
@@ -592,7 +609,31 @@ function App() {
                 transition: 'background-color 0.2s ease'
               }} 
             />
-            <span style={{ position: 'relative', zIndex: 1 }}>ADD HERE</span>
+            <img 
+              src="/images/ad-banner.png"
+              alt="Advertisement"
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                width: '92%',
+                height: '75%',
+                objectFit: 'contain',
+                pointerEvents: 'none'
+              }}
+              onError={(e) => {
+                // Fallback to text if image fails to load
+                e.target.style.display = 'none'
+                e.target.nextSibling.style.display = 'block'
+              }}
+            />
+            <span style={{ 
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 1,
+              display: 'none'
+            }}>ADD HERE</span>
           </button>
           {/* RSS Feed button - spans 2 cells with scrolling text */}
           <button style={{
@@ -646,8 +687,8 @@ function App() {
           </button>
           {/* Login Button */}
           <button className="login-button" style={{
-            fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-            fontWeight: 'bold',
+            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+            fontWeight: 700,
             fontStretch: 'condensed',
             fontSize: 'clamp(20px, 2vw, 60px)',
             color: 'white',
@@ -770,6 +811,22 @@ function App() {
           {/* Content blocks for all rows */}
           {rowBlocks.map((blocks, rowIndex) => {
             const isBlankRow = blocks[0]?.isBlank
+            
+            // Determine which ad image to show for blank rows
+            // Top 4 blank rows (if shown): rows 0-3 -> ads 1-4
+            // Bottom 4 blank rows: last 4 rows -> ads 1-4 (matching top for seamless loop)
+            let adImageNumber = null
+            if (isBlankRow) {
+              if (showTopBlanks && rowIndex < 4) {
+                // Top blank rows
+                adImageNumber = rowIndex + 1
+              } else if (rowIndex >= (showTopBlanks ? 54 : 50)) {
+                // Bottom blank rows - map to same ads as top
+                const bottomRowOffset = rowIndex - (showTopBlanks ? 54 : 50)
+                adImageNumber = bottomRowOffset + 1
+              }
+            }
+            
             return (
               <div key={rowIndex} style={{
                 position: 'absolute',
@@ -823,6 +880,20 @@ function App() {
                           transition: 'background-color 0.2s ease'
                         }} 
                       />
+                      {adImageNumber && (
+                        <img 
+                          src={`/images/ad-row-${adImageNumber}.png`}
+                          alt={`Advertisement ${adImageNumber}`}
+                          style={{
+                            position: 'relative',
+                            zIndex: 1,
+                            width: '95%',
+                            height: '80%',
+                            objectFit: 'contain',
+                            pointerEvents: 'none'
+                          }}
+                        />
+                      )}
                     </button>
                   )
                 }
@@ -833,8 +904,8 @@ function App() {
                     key={block.id} 
                     className="show-button"
                     style={{
-                      fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-                      fontWeight: 'bold',
+                      fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                      fontWeight: 700,
                       fontStretch: 'condensed',
                       fontSize: 'clamp(20px, 2vw, 60px)',
                       color: 'white',

@@ -822,7 +822,7 @@ function App() {
               fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
               fontWeight: 'bold',
               fontStretch: 'condensed',
-              fontSize: 'clamp(20px, 2vw, 60px)',
+              fontSize: 'clamp(16px, 1.6vw, 48px)',
               color: 'white',
               textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
               display: 'flex',
@@ -865,7 +865,7 @@ function App() {
               whiteSpace: 'nowrap',
               padding: '0 10px'
             }}>
-              {isAuthenticating ? 'Loading...' : user ? user.display_name || user.login : 'Login'}
+              {isAuthenticating ? 'Loading...' : user ? 'Logout' : 'Login'}
             </span>
           </button>
         </div>

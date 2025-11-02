@@ -733,17 +733,18 @@ function App() {
       width: '100%',
       height: '100vh',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      backgroundColor: '#1B0731'
     }}>
       {/* CRT Screen Effects Container */}
-      <div className="crt-container" style={{
+      <div className="crt-container barrel-distortion" style={{
         width: '100%',
         height: '100vh',
         backgroundColor: '#1B0731',
         display: 'flex',
         flexDirection: 'column',
         padding: '0 2.6vw 1.3vw 2.6vw',
-        filter: 'blur(0.04vw)',
+        filter: 'blur(calc(0.025vw + 0.025vh))',
         imageRendering: 'pixelated',
         position: 'relative'
       }}>
@@ -1170,7 +1171,7 @@ function App() {
             left: firstColumnWidth,
             width: `calc(${typicalColumnWidth} * 5)`,
             zIndex: 2,
-            pointerEvents: 'none'
+            pointerEvents: 'auto'
           }}
         >
           {rowLayouts.map((blocks, rowIndex) => {
@@ -1441,7 +1442,7 @@ function App() {
         animation: 'vhs-vertical-jitter 0.3s infinite'
       }} />
       
-      {/* VHS Color Bleeding - red channel smear */}
+      {/* VHS Reduced Color Saturation */}
       <div style={{
         position: 'fixed',
         top: 0,
@@ -1450,10 +1451,61 @@ function App() {
         height: '100%',
         pointerEvents: 'none',
         zIndex: 9994,
-        mixBlendMode: 'screen',
-        filter: 'blur(0.5px)',
-        background: 'linear-gradient(90deg, transparent 0%, rgba(255, 0, 0, 0.03) 50%, transparent 100%)',
-        animation: 'vhs-color-bleed 3s infinite alternate'
+        filter: 'saturate(0.85) contrast(1.05)',
+        mixBlendMode: 'normal'
+      }} />
+      
+      {/* VHS RGB Chromatic Aberration */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9993,
+        background: 'transparent',
+        animation: 'vhs-chromatic-aberration 5s infinite'
+      }} />
+      
+      {/* VHS Color Noise in Dark Areas */}
+      <div className="vhs-noise" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9992,
+        opacity: 0.08,
+        mixBlendMode: 'overlay',
+        animation: 'vhs-noise 0.2s infinite'
+      }} />
+      
+      {/* Luma Noise - brightness flickering */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9991,
+        background: 'rgba(255, 255, 255, 0.02)',
+        animation: 'luma-flicker 0.08s infinite'
+      }} />
+      
+      {/* Occasional Static Bursts */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9990,
+        background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
+        animation: 'static-burst 12s infinite'
       }} />
       
 

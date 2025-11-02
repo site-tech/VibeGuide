@@ -19,6 +19,7 @@ const (
 	CategoriesEndpoint   = "/games/top"
 )
 
+// TODO: move these to be environemnt variables
 // Default values
 const (
 	DefaultStreamLimit   = 100
@@ -28,6 +29,7 @@ const (
 	HTTPTimeout          = 10 // seconds
 )
 
+// TODO: move these to be environemnt variables
 // Query parameter validation constants
 const (
 	MinStreamQueryLimit = 1
@@ -80,6 +82,7 @@ type CategoriesResponse struct {
 // Client interface defines the core Twitch client functionality
 type Client interface {
 	GetTopStreams(ctx context.Context, limit int) (*StreamsResponse, error)
+	GetStreams(ctx context.Context, params StreamsQueryParams) (*StreamsResponse, error)
 	GetAuthorizationURL(redirectURI, state string, scopes []string) string
 	ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*UserToken, error)
 	ValidateToken(ctx context.Context, accessToken string) (*TokenValidation, error)

@@ -6,8 +6,8 @@ The Twitch client handler will be implemented as a new package (`pkg/twitch`) th
 
 The implementation will focus on:
 - OAuth 2.0 Client Credentials flow for authentication
-- A single method to fetch top streams from Twitch API
-- A REST endpoint (`/v1/twitch/streams/top`) to expose this functionality
+- Methods to fetch top streams and game categories from Twitch API
+- REST endpoints (`/v1/twitch/streams/top` and `/v1/twitch/categories`) to expose this functionality
 - Simple error handling and JSON response formatting
 
 ## Architecture
@@ -46,23 +46,36 @@ type StreamsResponse struct {
     Data []Stream `json:"data"`
 }
 
+type CategoriesResponse struct {
+    Data []Category `json:"data"`
+}
+
+type Category struct {
+    ID               string `json:"id"`
+    Name             string `json:"name"`
+    BoxArtURL        string `json:"box_art_url"`
+    IGDBId           string `json:"igdb_id"`
+}
+
 type Stream struct {
-    ID           string `json:"id"`
-    UserID       string `json:"user_id"`
-    UserLogin    string `json:"user_login"`
-    UserName     string `json:"user_name"`
-    GameID       string `json:"game_id"`
-    GameName     string `json:"game_name"`
-    Type         string `json:"type"`
-    Title        string `json:"title"`
-    ViewerCount  int    `json:"viewer_count"`
-    StartedAt    string `json:"started_at"`
-    Language     string `json:"language"`
-    ThumbnailURL string `json:"thumbnail_url"`
+    ID           string   `json:"id"`
+    UserID       string   `json:"user_id"`
+    UserLogin    string   `json:"user_login"`
+    UserName     string   `json:"user_name"`
+    GameID       string   `json:"game_id"`
+    GameName     string   `json:"game_name"`
+    Type         string   `json:"type"`
+    Title        string   `json:"title"`
+    ViewerCount  int      `json:"viewer_count"`
+    StartedAt    string   `json:"started_at"`
+    Language     string   `json:"language"`
+    ThumbnailURL string   `json:"thumbnail_url"`
+    Tags        []string  `json:"tags"`
 }
 
 func NewClient(clientID, clientSecret string) *Client
 func (c *Client) GetTopStreams(ctx context.Context, limit int) (*StreamsResponse, error)
+func (c *Client) GetCategories(ctx context.Context, limit int, sortBy string) (*CategoriesResponse, error)
 ```
 
 ### OAuth Manager (`pkg/twitch/oauth.go`)
@@ -107,7 +120,14 @@ type VibeConfig struct {
 ```go
 func twitchRouter(twitchClient *twitch.Client) http.Handler
 func getTopStreamsHandler(twitchClient *twitch.Client) http.HandlerFunc
+func getCategoriesHandler(twitchClient *twitch.Client) http.HandlerFunc
 ```
+
+#### Endpoint Design
+- `/v1/twitch/streams/top` - Returns top streams
+- `/v1/twitch/categories` - Returns game categories with query parameter support:
+  - `?sort=top` - Sort by top categories (most viewed)
+  - `?limit=N` - Control result count (default: 20, max: 100)
 
 ## Data Models
 
@@ -178,10 +198,13 @@ Required environment variables:
 - Base URL: `https://api.twitch.tv/helix`
 - OAuth URL: `https://id.twitch.tv/oauth2/token`
 - Top Streams: `/streams?first={limit}`
+- Categories: `/games/top?first={limit}` (when sort=top)
 
 ### Default Behavior
 - Default limit for top streams: 100
-- Maximum limit: 1000
+- Default limit for categories: 20
+- Maximum limit: 100 (for categories), 1000 (for streams)
+- Default sort for categories: "top" (by viewer count)
 - HTTP client timeout: 10 seconds
 - Token stored in memory only (no persistence)
 

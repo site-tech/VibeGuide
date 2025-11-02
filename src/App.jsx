@@ -1,10 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { getTopCategories, getStreamsByCategory } from './lib/api'
+import { supabase } from './lib/supabase'
 
 function App() {
-  const [channelNumber] = useState(Math.floor(Math.random() * 100) + 1)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [categories, setCategories] = useState([])
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true)
+  const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
+  const [isLoadingStreams, setIsLoadingStreams] = useState(false)
+  const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
+  const [user, setUser] = useState(null) // Twitch user data
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now(), isAutoScrolling: false })
@@ -14,6 +22,68 @@ function App() {
   const [showTopBlanks] = useState(() => {
     return sessionStorage.getItem('showTopBlanks') === 'true'
   })
+
+  // Check for existing Supabase session on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email,
+          display_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name,
+          login: session.user.user_metadata?.preferred_username || session.user.user_metadata?.user_name,
+          profile_image_url: session.user.user_metadata?.avatar_url
+        })
+      }
+    })
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email,
+          display_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name,
+          login: session.user.user_metadata?.preferred_username || session.user.user_metadata?.user_name,
+          profile_image_url: session.user.user_metadata?.avatar_url
+        })
+      } else {
+        setUser(null)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Handle login button click
+  const handleLogin = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'twitch',
+        options: {
+          redirectTo: window.location.origin
+        }
+      })
+      
+      if (error) throw error
+    } catch (error) {
+      console.error('Login error:', error)
+      alert('Failed to start login. Please try again.')
+    }
+  }
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      setUser(null)
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+  }
   
   // Restore RSS animation position from sessionStorage
   const [rssAnimationDelay] = useState(() => {
@@ -28,8 +98,8 @@ function App() {
     return 0
   })
   
-  // Generate content blocks for all rows once on mount
-  const [rowBlocks] = useState(() => {
+  // Generate layout structure for all rows once on mount (without text content)
+  const [rowLayouts] = useState(() => {
     // EDITABLE PARAMETERS
     const SHOW_WIDTH_OPTIONS = [1, 1.5, 2] // Available widths for show blocks (in cells)
     const MAX_GRID_POSITION = 45 // Maximum position to stop generating blocks
@@ -42,13 +112,12 @@ function App() {
     const createBlankRow = () => [{
       id: 0,
       width: 45, // Full width to match MAX_GRID_POSITION
-      text: '',
       position: 0,
       isBlank: true
     }]
     
     // Generate blocks that align to 3-cell boundaries
-    const generateRowBlocks = (rowIndex, channelNum) => {
+    const generateRowBlocks = (rowIndex) => {
       const blocks = []
       let currentPosition = 0
       const maxPosition = MAX_GRID_POSITION
@@ -81,8 +150,8 @@ function App() {
         blocks.push({
           id: blockId++,
           width: width,
-          text: `CH${channelNum} Show ${blockId}`,
-          position: currentPosition
+          position: currentPosition,
+          streamIndex: blockId - 1 // Index to map to stream data
         })
         
         currentPosition += width
@@ -105,19 +174,19 @@ function App() {
       
       // Every Nth row, make 2 consecutive rows have similar layout
       if (row % SIMILAR_LAYOUT_INTERVAL === 0 && row > 0) {
-        // Copy previous row's layout but with different text
+        // Copy previous row's layout
         const prevBlocks = allRows[allRows.length - 1]
         if (!prevBlocks[0]?.isBlank) {
           blocks = prevBlocks.map((block, idx) => ({
             ...block,
             id: idx,
-            text: `CH${row + 1} Show ${idx + 1}`
+            streamIndex: idx
           }))
         } else {
-          blocks = generateRowBlocks(row, row + 1)
+          blocks = generateRowBlocks(row)
         }
       } else {
-        blocks = generateRowBlocks(row, row + 1)
+        blocks = generateRowBlocks(row)
       }
       
       allRows.push(blocks)
@@ -130,6 +199,78 @@ function App() {
     
     return allRows
   })
+
+  // Fetch categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setIsLoadingCategories(true)
+        const data = await getTopCategories(50)
+        setCategories(data)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+        // Keep empty array on error
+      } finally {
+        setIsLoadingCategories(false)
+      }
+    }
+    
+    fetchCategories()
+  }, [])
+
+  // Fetch streams for each category after categories are loaded
+  useEffect(() => {
+    if (categories.length === 0) return
+    // Prevent multiple fetches
+    if (Object.keys(categoryStreams).length > 0) return
+
+    const fetchAllStreams = async () => {
+      setIsLoadingStreams(true)
+      
+      const streamsMap = {}
+      
+      // Fetch streams for all categories in parallel
+      const streamPromises = categories.map(async (category) => {
+        const streams = await getStreamsByCategory(category.id, 20)
+        return { categoryId: category.id, streams }
+      })
+      
+      const results = await Promise.all(streamPromises)
+      
+      // Build the streams map
+      results.forEach(({ categoryId, streams }) => {
+        streamsMap[categoryId] = streams
+      })
+      
+      // Pick a random stream to feature BEFORE setting state
+      let selectedStream = null
+      const allStreams = []
+      categories.forEach((category, categoryIndex) => {
+        const streams = streamsMap[category.id] || []
+        streams.forEach(stream => {
+          allStreams.push({
+            ...stream,
+            categoryName: category.name,
+            categoryRank: categoryIndex + 1 // 1-indexed rank
+          })
+        })
+      })
+      
+      if (allStreams.length > 0) {
+        const randomIndex = Math.floor(Math.random() * allStreams.length)
+        selectedStream = allStreams[randomIndex]
+      }
+      
+      // Batch state updates to prevent multiple renders
+      setCategoryStreams(streamsMap)
+      if (selectedStream) {
+        setFeaturedStream(selectedStream)
+      }
+      setIsLoadingStreams(false)
+    }
+    
+    fetchAllStreams()
+  }, [categories, categoryStreams])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -587,13 +728,44 @@ function App() {
         height: '50%',
         width: '100%'
       }}>
-        {/* Top Left Quadrant */}
+        {/* Top Left Quadrant - Twitch Stream Embed */}
         <div style={{
           width: '50%',
-          height: '100%'
-        }} />
+          height: '100%',
+          position: 'relative',
+          backgroundColor: '#000'
+        }}>
+          {featuredStream ? (
+            <iframe
+              key={featuredStream.user_login}
+              src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
+              height="100%"
+              width="100%"
+              allowFullScreen={true}
+              allow="autoplay; fullscreen"
+              style={{
+                border: 'none',
+                display: 'block'
+              }}
+              title={`${featuredStream.user_name} Twitch Stream`}
+            />
+          ) : (
+            <div style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
+              fontSize: 'clamp(20px, 2vw, 60px)'
+            }}>
+              {isLoadingStreams ? 'Loading Stream...' : 'No Stream Available'}
+            </div>
+          )}
+        </div>
 
-        {/* Top Right Quadrant with gradient and text */}
+        {/* Top Right Quadrant with gradient and stream details */}
         <div style={{
           width: '50%',
           height: '100%',
@@ -622,7 +794,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Category
+            {featuredStream ? featuredStream.categoryName : 'Category'}
           </div>
           <div style={{
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
@@ -634,7 +806,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            "StreamerName"
+            {featuredStream ? featuredStream.user_name : 'StreamerName'}
           </div>
           <div style={{
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
@@ -658,7 +830,7 @@ function App() {
             zIndex: 1,
             whiteSpace: 'nowrap'
           }}>
-            Channel {channelNumber}
+            {featuredStream ? `Channel #${featuredStream.categoryRank}` : 'Channel'}
           </div>
         </div>
       </div>
@@ -830,26 +1002,32 @@ function App() {
             </div>
           </button>
           {/* Login Button */}
-          <button className="login-button" style={{
-            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-            fontWeight: 700,
-            fontStretch: 'condensed',
-            fontSize: 'clamp(20px, 2vw, 60px)',
-            color: 'white',
-            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: headerRowHeight,
-            minHeight: headerRowHeight,
-            flex: 1,
-            position: 'relative',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-            border: 'none',
-            background: 'none',
-            marginRight: '-5px'
-          }}>
+          <button 
+            className="login-button" 
+            onClick={user ? handleLogout : handleLogin}
+            disabled={isAuthenticating}
+            style={{
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: 'clamp(16px, 1.6vw, 48px)',
+              color: 'white',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: headerRowHeight,
+              minHeight: headerRowHeight,
+              flex: 1,
+              position: 'relative',
+              cursor: isAuthenticating ? 'wait' : 'pointer',
+              pointerEvents: 'auto',
+              border: 'none',
+              background: 'none',
+              marginRight: '-5px',
+              opacity: isAuthenticating ? 0.7 : 1
+            }}
+          >
             <div 
               className="login-button-bg"
               style={{
@@ -867,7 +1045,16 @@ function App() {
                 transition: 'background-color 0.2s ease'
               }} 
             />
-            <span style={{ position: 'relative', zIndex: 1 }}>Login</span>
+            <span style={{ 
+              position: 'relative', 
+              zIndex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              padding: '0 10px'
+            }}>
+              {isAuthenticating ? 'Loading...' : user ? 'Logout' : 'Login'}
+            </span>
           </button>
         </div>
         
@@ -892,6 +1079,12 @@ function App() {
             const isBottomBlank = i >= (showTopBlanks ? 54 : 50)
             const isBlank = isTopBlank || isBottomBlank
             const channelNum = isBlank ? '' : (i - channelRowOffset + 1)
+            
+            // Get category name for this channel
+            const categoryIndex = i - channelRowOffset
+            const categoryName = !isBlank && categories[categoryIndex] 
+              ? categories[categoryIndex].name 
+              : 'CATEGORY'
             
             return (
               <div key={i} style={{
@@ -928,7 +1121,9 @@ function App() {
                       textOverflow: 'ellipsis',
                       width: '100%',
                       textAlign: 'center'
-                    }}>CATEGORY</span>
+                    }}>
+                      {isLoadingCategories ? 'Loading...' : categoryName}
+                    </span>
                   </>
                 )}
               </div>
@@ -953,7 +1148,7 @@ function App() {
           }}
         >
           {/* Content blocks for all rows */}
-          {rowBlocks.map((blocks, rowIndex) => {
+          {rowLayouts.map((blocks, rowIndex) => {
             const isBlankRow = blocks[0]?.isBlank
             
             // Determine which ad image to show for blank rows
@@ -970,6 +1165,11 @@ function App() {
                 adImageNumber = bottomRowOffset + 1
               }
             }
+            
+            // Get the category for this row (accounting for top blank rows)
+            const categoryIndex = showTopBlanks ? rowIndex - 4 : rowIndex
+            const category = categories[categoryIndex]
+            const streams = category ? categoryStreams[category.id] : []
             
             return (
               <div key={rowIndex} style={{
@@ -1090,7 +1290,11 @@ function App() {
                       }} 
                     />
                     <span style={{ position: 'relative', zIndex: 1 }}>
-                      {block.text === 'CH1 Show 1' ? '❤︎  ' : ''}{block.text}
+                      {isLoadingStreams 
+                        ? 'Loading...' 
+                        : streams && streams[block.streamIndex] 
+                          ? streams[block.streamIndex].user_name 
+                          : 'No Stream'}
                     </span>
                   </button>
                 )

@@ -47,3 +47,25 @@ export async function getTopStreams(count = 100) {
     throw error
   }
 }
+
+/**
+ * Fetch streams for a specific game/category
+ * @param {string} gameId - The Twitch game/category ID
+ * @param {number} limit - Number of streams to fetch (default: 20)
+ * @returns {Promise<Array>} Array of stream objects
+ */
+export async function getStreamsByCategory(gameId, limit = 20) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/v1/twitch/streams?game_id=${gameId}&limit=${limit}`)
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch streams for category ${gameId}: ${response.status} ${response.statusText}`)
+    }
+    
+    const data = await response.json()
+    return data.data?.data || []
+  } catch (error) {
+    console.error(`Error fetching streams for category ${gameId}:`, error)
+    return [] // Return empty array on error to avoid breaking the UI
+  }
+}

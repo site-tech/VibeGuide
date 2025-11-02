@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { getTopCategories } from './lib/api'
+import { getTopCategories, getStreamsByCategory } from './lib/api'
 
 function App() {
   const [channelNumber] = useState(Math.floor(Math.random() * 100) + 1)
@@ -8,6 +8,8 @@ function App() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [categories, setCategories] = useState([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
+  const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
+  const [isLoadingStreams, setIsLoadingStreams] = useState(false)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now() })
@@ -17,8 +19,8 @@ function App() {
     return sessionStorage.getItem('showTopBlanks') === 'true'
   })
   
-  // Generate content blocks for all rows once on mount
-  const [rowBlocks] = useState(() => {
+  // Generate layout structure for all rows once on mount (without text content)
+  const [rowLayouts] = useState(() => {
     // EDITABLE PARAMETERS
     const SHOW_WIDTH_OPTIONS = [1, 1.5, 2] // Available widths for show blocks (in cells)
     const MAX_GRID_POSITION = 45 // Maximum position to stop generating blocks
@@ -31,13 +33,12 @@ function App() {
     const createBlankRow = () => [{
       id: 0,
       width: 45, // Full width to match MAX_GRID_POSITION
-      text: '',
       position: 0,
       isBlank: true
     }]
     
     // Generate blocks that align to 3-cell boundaries
-    const generateRowBlocks = (rowIndex, channelNum) => {
+    const generateRowBlocks = (rowIndex) => {
       const blocks = []
       let currentPosition = 0
       const maxPosition = MAX_GRID_POSITION
@@ -70,8 +71,8 @@ function App() {
         blocks.push({
           id: blockId++,
           width: width,
-          text: `CH${channelNum} Show ${blockId}`,
-          position: currentPosition
+          position: currentPosition,
+          streamIndex: blockId - 1 // Index to map to stream data
         })
         
         currentPosition += width
@@ -94,19 +95,19 @@ function App() {
       
       // Every Nth row, make 2 consecutive rows have similar layout
       if (row % SIMILAR_LAYOUT_INTERVAL === 0 && row > 0) {
-        // Copy previous row's layout but with different text
+        // Copy previous row's layout
         const prevBlocks = allRows[allRows.length - 1]
         if (!prevBlocks[0]?.isBlank) {
           blocks = prevBlocks.map((block, idx) => ({
             ...block,
             id: idx,
-            text: `CH${row + 1} Show ${idx + 1}`
+            streamIndex: idx
           }))
         } else {
-          blocks = generateRowBlocks(row, row + 1)
+          blocks = generateRowBlocks(row)
         }
       } else {
-        blocks = generateRowBlocks(row, row + 1)
+        blocks = generateRowBlocks(row)
       }
       
       allRows.push(blocks)
@@ -139,6 +140,38 @@ function App() {
     
     fetchCategories()
   }, [])
+
+  // Fetch streams for each category after categories are loaded
+  useEffect(() => {
+    if (categories.length === 0) return
+
+    const fetchAllStreams = async () => {
+      setIsLoadingStreams(true)
+      console.log('Fetching streams for', categories.length, 'categories...')
+      
+      const streamsMap = {}
+      
+      // Fetch streams for all categories in parallel
+      const streamPromises = categories.map(async (category) => {
+        const streams = await getStreamsByCategory(category.id, 20)
+        return { categoryId: category.id, streams }
+      })
+      
+      const results = await Promise.all(streamPromises)
+      
+      // Build the streams map
+      results.forEach(({ categoryId, streams }) => {
+        streamsMap[categoryId] = streams
+      })
+      
+      console.log('Streams loaded for all categories')
+      console.log('Sample - First category streams:', streamsMap[categories[0].id]?.slice(0, 3).map(s => s.user_name))
+      setCategoryStreams(streamsMap)
+      setIsLoadingStreams(false)
+    }
+    
+    fetchAllStreams()
+  }, [categories])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -804,8 +837,14 @@ function App() {
           }}
         >
           {/* Content blocks for all rows */}
-          {rowBlocks.map((blocks, rowIndex) => {
+          {rowLayouts.map((blocks, rowIndex) => {
             const isBlankRow = blocks[0]?.isBlank
+            
+            // Get the category for this row (accounting for top blank rows)
+            const categoryIndex = showTopBlanks ? rowIndex - 4 : rowIndex
+            const category = categories[categoryIndex]
+            const streams = category ? categoryStreams[category.id] : []
+            
             return (
               <div key={rowIndex} style={{
                 position: 'absolute',
@@ -910,7 +949,13 @@ function App() {
                         transition: 'background-color 0.2s ease'
                       }} 
                     />
-                    <span style={{ position: 'relative', zIndex: 1 }}>{block.text}</span>
+                    <span style={{ position: 'relative', zIndex: 1 }}>
+                      {isLoadingStreams 
+                        ? 'Loading...' 
+                        : streams && streams[block.streamIndex] 
+                          ? streams[block.streamIndex].user_name 
+                          : 'No Stream'}
+                    </span>
                   </button>
                 )
                 })}

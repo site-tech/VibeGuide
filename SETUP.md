@@ -47,11 +47,16 @@ TWITCH_CLIENT_SECRET=your_client_secret
 
 ### Categories Display
 
-The app now fetches the top 50 Twitch categories from the backend and displays them in the left column of the TV guide grid. Each channel (CH 1-50) shows its corresponding category name.
+The app fetches the top 50 Twitch categories from the backend and displays them in the left column of the TV guide grid. Each channel (CH 1-50) shows its corresponding category name.
+
+### Streamers Display
+
+For each category, the app fetches the top 20 live streamers and displays their usernames as "shows" in the grid. Each row represents a category, and the blocks in that row show the streamers currently live in that category.
 
 ### API Endpoints Used
 
 - `GET /v1/twitch/categories?limit=50` - Fetches top 50 Twitch categories
+- `GET /v1/twitch/streams?game_id={categoryId}&limit=20` - Fetches top 20 streams for a specific category
 
 ## Troubleshooting
 

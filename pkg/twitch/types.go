@@ -17,6 +17,7 @@ const (
 	StreamsEndpoint      = "/streams"
 	UsersEndpoint        = "/users"
 	CategoriesEndpoint   = "/games/top"
+	FollowsEndpoint      = "/channels/followed"
 )
 
 // TODO: move these to be environemnt variables
@@ -88,6 +89,7 @@ type Client interface {
 	ValidateToken(ctx context.Context, accessToken string) (*TokenValidation, error)
 	GetUserInfo(ctx context.Context, accessToken string) (*User, error)
 	GetCategories(ctx context.Context, limit int, sortBy string) (*CategoriesResponse, error)
+	GetUserFollows(ctx context.Context, userID string, userToken string) (*FollowsResponse, error)
 }
 
 // OAuthManager interface defines OAuth token management functionality
@@ -206,4 +208,24 @@ type User struct {
 // UsersResponse represents the response from Twitch API for users
 type UsersResponse struct {
 	Data []User `json:"data"`
+}
+
+// Follow represents a channel that a user follows
+type Follow struct {
+	BroadcasterID    string `json:"broadcaster_id"`
+	BroadcasterLogin string `json:"broadcaster_login"`
+	BroadcasterName  string `json:"broadcaster_name"`
+	FollowedAt       string `json:"followed_at"`
+}
+
+// Pagination represents pagination information from Twitch API
+type Pagination struct {
+	Cursor string `json:"cursor"`
+}
+
+// FollowsResponse represents the response from Twitch API for user follows
+type FollowsResponse struct {
+	Data       []Follow   `json:"data"`
+	Total      int        `json:"total"`
+	Pagination Pagination `json:"pagination"`
 }

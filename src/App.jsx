@@ -410,7 +410,6 @@ function App() {
     
     // Small delay to ensure DOM is ready
     setTimeout(() => {
-      const rowHeight = getRowHeight()
       scrollElement.scrollTop = 0 // Start at CH 1
     }, 50)
   }, [showTopBlanks])
@@ -423,8 +422,8 @@ function App() {
     const getRowHeight = () => {
       const vh = window.innerHeight / 100
       const vw = window.innerWidth / 100
-      // Match the CSS calculation: (50vh - 4vw - 6px) / 4
-      return (50 * vh - 4 * vw - 6) / 4 // typicalRowHeight in pixels
+      // Match the CSS calculation: (50vh - 4vw) / 4
+      return (50 * vh - 4 * vw) / 4 // typicalRowHeight in pixels
     }
 
     const startAutoScroll = () => {
@@ -484,17 +483,20 @@ function App() {
       // Adjust duration based on distance: 2 seconds per row
       // This keeps the speed consistent whether scrolling 3.5 rows or 4 rows
       const duration = Math.max(rowsToScroll * 2000, 1000) // Minimum 1 second
-      const startTime = Date.now()
+      const startTime = performance.now()
 
-      autoScrollRef.current.interval = setInterval(() => {
-        const elapsed = Date.now() - startTime
+      const animate = (currentTime) => {
+        const elapsed = currentTime - startTime
         const progress = Math.min(elapsed / duration, 1)
         const easeProgress = progress * (2 - progress) // ease out
         
         scrollElement.scrollTop = startScroll + scrollDistance * easeProgress
 
         if (progress >= 1) {
-          clearInterval(autoScrollRef.current.interval)
+          cancelAnimationFrame(autoScrollRef.current.interval)
+          
+          // Snap to exact target to prevent drift
+          scrollElement.scrollTop = actualTargetScroll
           
           // Mark that auto-scroll is done
           autoScrollRef.current.isAutoScrolling = false
@@ -532,14 +534,20 @@ function App() {
               startAutoScroll()
             }
           }, 10000)
+        } else {
+          autoScrollRef.current.interval = requestAnimationFrame(animate)
         }
-      }, 16) // ~60fps
+      }
+      
+      autoScrollRef.current.interval = requestAnimationFrame(animate)
     }
 
     const resetAutoScroll = () => {
       autoScrollRef.current.lastInteraction = Date.now()
       clearTimeout(autoScrollRef.current.timeout)
-      clearInterval(autoScrollRef.current.interval)
+      if (autoScrollRef.current.interval) {
+        cancelAnimationFrame(autoScrollRef.current.interval)
+      }
       
       // Start 10 second countdown
       autoScrollRef.current.timeout = setTimeout(() => {
@@ -586,7 +594,9 @@ function App() {
 
     return () => {
       clearTimeout(autoScrollRef.current.timeout)
-      clearInterval(autoScrollRef.current.interval)
+      if (autoScrollRef.current.interval) {
+        cancelAnimationFrame(autoScrollRef.current.interval)
+      }
       scrollElement.removeEventListener('wheel', handleInteraction)
       scrollElement.removeEventListener('touchstart', handleInteraction)
       scrollElement.removeEventListener('mousedown', handleInteraction)
@@ -609,8 +619,12 @@ function App() {
 
     const handleScroll = () => {
       // Header row stays static, don't transform it
+      const blankRowAds = document.getElementById('blank-row-ads')
       if (firstColumn) {
         firstColumn.style.transform = `translateY(-${scrollElement.scrollTop}px)`
+      }
+      if (blankRowAds) {
+        blankRowAds.style.transform = `translateY(-${scrollElement.scrollTop}px)`
       }
     }
 
@@ -718,18 +732,28 @@ function App() {
   // Available height = 50vh (bottom half)
   // Header row: 4vw (includes its borders)
   // Content area: 50vh - 4vw
-  // We need 4 rows to fit, with the last row's bottom border (5px) fully visible
-  // So: 4 rows + 6px for bottom border clearance = 50vh - 4vw
-  // Each row: (50vh - 4vw - 6px) / 4
+  // We need exactly 4 rows to fit perfectly in the visible area
+  // Each row: (50vh - 4vw) / 4
   
   const headerRowHeight = '4vw'
-  const typicalRowHeight = 'calc((50vh - 4vw - 6px) / 4)'
+  const typicalRowHeight = 'calc((50vh - 4vw) / 4)'
+  
+  // Font sizing based on container heights
+  // Header row (4vw): 1 line of text with padding = 70% of height for text, reduced by 20%
+  const headerFontSize = 'calc(4vw * 0.7 * 0.8)'
+  
+  // Regular cells: 2 lines of text with padding = 40% of height per line
+  const cellFontSize = 'calc(((50vh - 4vw) / 4) * 0.4)'
+  
+  // Top quadrant text (50vh / 5 lines = 10vh per line with spacing) - reduced by 30%
+  const quadrantFontSize = 'calc((50vh / 6) * 0.7)'
   
   const cellStyle = {
     fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
     fontWeight: 700,
     fontStretch: 'condensed',
-    fontSize: 'clamp(20px, 2vw, 60px)',
+    fontSize: cellFontSize,
+    lineHeight: '1',
     color: 'white',
     textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
     display: 'flex',
@@ -744,6 +768,7 @@ function App() {
   
   const headerCellStyle = {
     ...cellStyle,
+    fontSize: headerFontSize,
     height: headerRowHeight,
     minHeight: headerRowHeight,
     color: '#E3E07D'
@@ -766,13 +791,22 @@ function App() {
     <div style={{
       width: '100%',
       height: '100vh',
-      backgroundColor: '#1B0731',
-      display: 'flex',
-      flexDirection: 'column',
-      padding: '0 2.6vw 1.3vw 2.6vw',
-      filter: 'blur(0.04vw)',
-      imageRendering: 'pixelated'
+      position: 'relative',
+      overflow: 'hidden',
+      backgroundColor: '#1B0731'
     }}>
+      {/* CRT Screen Effects Container */}
+      <div className="crt-container barrel-distortion" style={{
+        width: '100%',
+        height: '100vh',
+        backgroundColor: '#1B0731',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '0 2.6vw 1.3vw 2.6vw',
+        filter: 'blur(calc(0.025vw + 0.025vh))',
+        imageRendering: 'pixelated',
+        position: 'relative'
+      }}>
       {/* Top Half - Split into 2 quadrants */}
       <div style={{
         display: 'flex',
@@ -808,8 +842,13 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
-              fontFamily: '"Futura Bold Condensed", "Futura", sans-serif',
-              fontSize: 'clamp(20px, 2vw, 60px)'
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: quadrantFontSize,
+              textAlign: 'center',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              padding: '0 2vw'
             }}>
               {isLoadingStreams ? 'Loading Stream...' : 'No Stream Available'}
             </div>
@@ -839,7 +878,7 @@ function App() {
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
             fontWeight: 700,
             fontStretch: 'condensed',
-            fontSize: 'clamp(20px, 2vw, 60px)',
+            fontSize: quadrantFontSize,
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
@@ -851,7 +890,7 @@ function App() {
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
             fontWeight: 700,
             fontStretch: 'condensed',
-            fontSize: 'clamp(20px, 2vw, 60px)',
+            fontSize: quadrantFontSize,
             color: '#E3E07D',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
@@ -863,7 +902,7 @@ function App() {
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
             fontWeight: 700,
             fontStretch: 'condensed',
-            fontSize: 'clamp(20px, 2vw, 60px)',
+            fontSize: quadrantFontSize,
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
@@ -875,7 +914,7 @@ function App() {
             fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
             fontWeight: 700,
             fontStretch: 'condensed',
-            fontSize: 'clamp(20px, 2vw, 60px)',
+            fontSize: quadrantFontSize,
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
@@ -892,7 +931,7 @@ function App() {
         width: '100%',
         position: 'relative',
         overflow: 'hidden',
-        borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+        borderRight: '5px solid rgba(0, 0, 0, 0.6)',
         boxSizing: 'border-box'
       }}>
         {/* Static Current Time Cell */}
@@ -918,8 +957,8 @@ function App() {
               backgroundColor: '#674D82',
               borderTop: '5px solid rgba(255, 255, 255, 0.6)',
               borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-              borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-              borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+              borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+              borderRight: '5px solid rgba(0, 0, 0, 0.6)',
               zIndex: -1
             }} />
             <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(currentTime)}</span>
@@ -967,9 +1006,10 @@ function App() {
                 backgroundColor: '#674D82',
                 borderTop: '5px solid rgba(255, 255, 255, 0.6)',
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.8)',
-                zIndex: -1
+                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                zIndex: -1,
+                transition: 'background-color 0.2s ease'
               }} 
             />
             <img 
@@ -1022,8 +1062,8 @@ function App() {
                 backgroundColor: '#674D82',
                 borderTop: '5px solid rgba(255, 255, 255, 0.6)',
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
                 zIndex: -1,
                 transition: 'background-color 0.2s ease'
               }} 
@@ -1049,7 +1089,7 @@ function App() {
                   animationDelay: `${rssAnimationDelay}s`
                 }}
               >
-                RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE: Weather forecast for the week ahead /// RSS HERE: Entertainment news and celebrity updates /// RSS HERE: Breaking news from around the world today /// RSS HERE: Latest updates on technology and innovation /// RSS HERE: Sports highlights and scores /// RSS HERE
+                Happy Kiroween! Catch a vibe with TTV Guide!  ///  Login to see your followers, click to preview a stream and get the full experience on Twitch!  ///  Stay idle for the old-school TTV Guide experience!  ///  Leave a like on our Kiroween Devpost submission!  ///  Happy Kiroween! Catch a vibe with TTV Guide!  ///  Login to see your followers, click to preview a stream and get the full experience on Twitch!  ///  Stay idle for the old-school TTV Guide experience!  ///  Leave a like on our Kiroween Devpost submission!  ///  
               </span>
             </div>
           </button>
@@ -1062,7 +1102,7 @@ function App() {
               fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
               fontWeight: 700,
               fontStretch: 'condensed',
-              fontSize: 'clamp(16px, 1.6vw, 48px)',
+              fontSize: headerFontSize,
               color: 'white',
               textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
               display: 'flex',
@@ -1091,8 +1131,8 @@ function App() {
                 backgroundColor: '#674D82',
                 borderTop: '5px solid rgba(255, 255, 255, 0.6)',
                 borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
                 zIndex: -1,
                 transition: 'background-color 0.2s ease'
               }} 
@@ -1156,8 +1196,8 @@ function App() {
                   backgroundColor: '#312043',
                   borderTop: '5px solid rgba(255, 255, 255, 0.6)',
                   borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                  borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                  borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                  borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                  borderRight: '5px solid rgba(0, 0, 0, 0.6)',
                   boxSizing: 'border-box',
                   zIndex: -1
                 }} />
@@ -1167,7 +1207,7 @@ function App() {
                     <span style={{ 
                       position: 'relative', 
                       zIndex: 1, 
-                      fontSize: 'clamp(10px, 1.2vw, 30px)',
+                      fontSize: 'calc(((50vh - 4vw) / 4) * 0.25)',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -1179,6 +1219,95 @@ function App() {
                   </>
                 )}
               </div>
+            )
+          })}
+        </div>
+        
+        {/* Fixed Blank Row Ads (non-scrolling horizontally) */}
+        <div 
+          id="blank-row-ads"
+          style={{
+            position: 'absolute',
+            top: headerRowHeight,
+            left: firstColumnWidth,
+            width: `calc(${typicalColumnWidth} * 5)`,
+            zIndex: 2,
+            pointerEvents: 'auto'
+          }}
+        >
+          {rowLayouts.map((blocks, rowIndex) => {
+            const isBlankRow = blocks[0]?.isBlank
+            if (!isBlankRow) return null
+            
+            // Determine which ad image to show for blank rows
+            let adImageNumber = null
+            if (showTopBlanks && rowIndex < 4) {
+              adImageNumber = rowIndex + 1
+            } else if (rowIndex >= (showTopBlanks ? 54 : 50)) {
+              const bottomRowOffset = rowIndex - (showTopBlanks ? 54 : 50)
+              adImageNumber = bottomRowOffset + 1
+            }
+            
+            if (!adImageNumber) return null
+            
+            return (
+              <button 
+                key={`ad-${rowIndex}`}
+                className="show-button blank-row-ad"
+                style={{
+                  position: 'absolute',
+                  top: `calc(${typicalRowHeight} * ${rowIndex})`,
+                  left: 0,
+                  height: typicalRowHeight,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  overflow: 'hidden',
+                  pointerEvents: 'auto'
+                }}
+              >
+                <div 
+                  className="show-button-bg"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#423352',
+                    borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                    borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                    borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                    borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                    boxSizing: 'border-box',
+                    zIndex: -1,
+                    transition: 'background-color 0.2s ease'
+                  }} 
+                />
+                <img 
+                  src={`/images/ad-row-${adImageNumber}.png`}
+                  alt={`Advertisement ${adImageNumber}`}
+                  style={{
+                    position: 'absolute',
+                    top: '5px',
+                    left: '5px',
+                    right: '5px',
+                    bottom: '5px',
+                    width: 'calc(100% - 10px)',
+                    height: 'calc(100% - 10px)',
+                    objectFit: 'cover',
+                    objectPosition: 'left center',
+                    pointerEvents: 'none',
+                    zIndex: 1
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none'
+                  }}
+                />
+              </button>
             )
           })}
         </div>
@@ -1239,12 +1368,11 @@ function App() {
                   ? `calc(${typicalColumnWidth} * 15)` // Span 15 columns (enough to cover visible area)
                   : `calc(${typicalColumnWidth} * ${block.width})`
                 
-                // Render blank blocks as buttons with 3D borders and hover effect
+                // Render blank blocks - empty spacer since ads are rendered separately
                 if (block.isBlank) {
                   return (
-                    <button 
+                    <div 
                       key={block.id}
-                      className="show-button"
                       style={{
                         height: typicalRowHeight,
                         width: blockWidth,
@@ -1252,45 +1380,9 @@ function App() {
                         boxSizing: 'border-box',
                         position: 'relative',
                         border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
-                        padding: 0,
-                        overflow: 'hidden'
+                        background: 'transparent'
                       }}
-                    >
-                      <div 
-                        className="show-button-bg"
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          backgroundColor: '#423352',
-                          borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                          borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                          borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                          borderRight: '5px solid rgba(0, 0, 0, 0.8)',
-                          boxSizing: 'border-box',
-                          zIndex: -1,
-                          transition: 'background-color 0.2s ease'
-                        }} 
-                      />
-                      {adImageNumber && (
-                        <img 
-                          src={`/images/ad-row-${adImageNumber}.png`}
-                          alt={`Advertisement ${adImageNumber}`}
-                          style={{
-                            position: 'relative',
-                            zIndex: 1,
-                            width: '95%',
-                            height: '80%',
-                            objectFit: 'contain',
-                            pointerEvents: 'none'
-                          }}
-                        />
-                      )}
-                    </button>
+                    />
                   )
                 }
                 
@@ -1322,7 +1414,8 @@ function App() {
                       fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
                       fontWeight: 700,
                       fontStretch: 'condensed',
-                      fontSize: 'clamp(20px, 2vw, 60px)',
+                      fontSize: cellFontSize,
+                      lineHeight: '1',
                       color: 'white',
                       textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
                       display: 'flex',
@@ -1354,8 +1447,8 @@ function App() {
                         backgroundColor: '#423352',
                         borderTop: '5px solid rgba(255, 255, 255, 0.6)',
                         borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                        borderBottom: '5px solid rgba(0, 0, 0, 0.8)',
-                        borderRight: '5px solid rgba(0, 0, 0, 0.8)',
+                        borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                        borderRight: '5px solid rgba(0, 0, 0, 0.6)',
                         boxSizing: 'border-box',
                         zIndex: -1,
                         transition: 'background-color 0.2s ease'
@@ -1397,6 +1490,130 @@ function App() {
 
 
         </div>
+      </div>
+      
+      {/* Scanlines Overlay */}
+      <div className="scanlines" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9998,
+        background: 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px)',
+        animation: 'scanline-flicker 0.1s infinite'
+      }} />
+      
+      {/* VHS Tracking Lines */}
+      <div className="vhs-tracking" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9997,
+        background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 3px, transparent 3px, transparent 8px)',
+        animation: 'vhs-tracking 8s linear infinite'
+      }} />
+      
+      {/* VHS Horizontal Displacement Glitch */}
+      <div className="vhs-displacement" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9996,
+        background: 'linear-gradient(to bottom, transparent 0%, transparent 30%, rgba(0, 0, 0, 0.02) 30%, rgba(0, 0, 0, 0.02) 32%, transparent 32%, transparent 100%)',
+        animation: 'vhs-horizontal-shake 4s infinite'
+      }} />
+      
+      {/* VHS Vertical Jitter */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9995,
+        animation: 'vhs-vertical-jitter 0.3s infinite'
+      }} />
+      
+      {/* VHS Reduced Color Saturation */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9994,
+        filter: 'saturate(0.85) contrast(1.05)',
+        mixBlendMode: 'normal'
+      }} />
+      
+      {/* VHS RGB Chromatic Aberration */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9993,
+        background: 'transparent',
+        animation: 'vhs-chromatic-aberration 5s infinite'
+      }} />
+      
+      {/* VHS Color Noise in Dark Areas */}
+      <div className="vhs-noise" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9992,
+        opacity: 0.08,
+        mixBlendMode: 'overlay',
+        animation: 'vhs-noise 0.2s infinite'
+      }} />
+      
+      {/* Luma Noise - brightness flickering */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9991,
+        background: 'rgba(255, 255, 255, 0.02)',
+        animation: 'luma-flicker 0.08s infinite'
+      }} />
+      
+      {/* Occasional Static Bursts */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9990,
+        background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
+        animation: 'static-burst 12s infinite'
+      }} />
+      
+
+      
+
+      
+
       </div>
     </div>
   )

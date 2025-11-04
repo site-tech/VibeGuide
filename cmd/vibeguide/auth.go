@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -173,7 +174,7 @@ func getTwitchAuthURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Define scopes for Twitch OAuth
-	scopes := []string{"user:read:email"}
+	scopes := []string{"user:read:email", "user:read:follows"}
 
 	// Get Twitch client from context (passed via router)
 	twitchClient := r.Context().Value("twitchClient").(twitch.Client)
@@ -280,4 +281,65 @@ func validateTwitchToken(w http.ResponseWriter, r *http.Request) {
 
 	zlog.Info().Msgf("(%s) validateTwitchToken done.", tId)
 	render.JSON(w, r, resp)
+}
+
+// extractTwitchTokenFromUser extracts the Twitch access token from Supabase user metadata
+func extractTwitchTokenFromUser(user *types.User) (string, error) {
+	if user.UserMetadata == nil {
+		return "", fmt.Errorf("user metadata not found")
+	}
+
+	// Check for Twitch token in user metadata
+	if twitchData, exists := user.UserMetadata["twitch"]; exists {
+		if twitchMap, ok := twitchData.(map[string]interface{}); ok {
+			if accessToken, exists := twitchMap["access_token"]; exists {
+				if tokenStr, ok := accessToken.(string); ok && tokenStr != "" {
+					return tokenStr, nil
+				}
+			}
+		}
+	}
+
+	// Also check for direct access_token field (alternative storage format)
+	if accessToken, exists := user.UserMetadata["twitch_access_token"]; exists {
+		if tokenStr, ok := accessToken.(string); ok && tokenStr != "" {
+			return tokenStr, nil
+		}
+	}
+
+	return "", fmt.Errorf("twitch access token not found in user metadata")
+}
+
+// extractTwitchUserIDFromUser extracts the Twitch user ID from Supabase user metadata
+func extractTwitchUserIDFromUser(user *types.User) (string, error) {
+	if user.UserMetadata == nil {
+		return "", fmt.Errorf("user metadata not found")
+	}
+
+	// Check for Twitch user ID in user metadata
+	if twitchData, exists := user.UserMetadata["twitch"]; exists {
+		if twitchMap, ok := twitchData.(map[string]interface{}); ok {
+			if userID, exists := twitchMap["user_id"]; exists {
+				if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+					return userIDStr, nil
+				}
+			}
+		}
+	}
+
+	// Also check for direct user_id field (alternative storage format)
+	if userID, exists := user.UserMetadata["twitch_user_id"]; exists {
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			return userIDStr, nil
+		}
+	}
+
+	// Check if the user ID is stored in the sub field (common OAuth pattern)
+	if sub, exists := user.UserMetadata["sub"]; exists {
+		if subStr, ok := sub.(string); ok && subStr != "" {
+			return subStr, nil
+		}
+	}
+
+	return "", fmt.Errorf("twitch user ID not found in user metadata")
 }

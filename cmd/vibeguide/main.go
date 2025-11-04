@@ -135,6 +135,11 @@ func run() (err error) {
 	}
 
 	zlog.Info().Msg("Twitch client initialized and tested successfully")
+
+	// Start cache cleanup goroutine
+	go startCacheCleanup(ctx)
+	zlog.Info().Msg("Cache cleanup goroutine started")
+
 	zlog.Info().Msg("connecting to database...")
 	db, err := Connect(DBCredentials{
 		Url:  config.DbURL,
@@ -334,7 +339,7 @@ func corsMiddleware() func(next http.Handler) http.Handler {
 
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-Twitch-Token")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Max-Age", "300")
 
@@ -383,4 +388,21 @@ func getEnvAsBool(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("could not parse env var %s: %w", key, err)
 	}
 	return val, nil
+}
+
+// startCacheCleanup starts a goroutine that periodically cleans expired cache entries
+func startCacheCleanup(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Minute) // Clean every 10 minutes
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			zlog.Info().Msg("Cache cleanup goroutine stopping")
+			return
+		case <-ticker.C:
+			cleanupFollowsCache()
+			zlog.Debug().Msg("Follows cache cleanup completed")
+		}
+	}
 }

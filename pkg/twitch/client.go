@@ -208,6 +208,8 @@ func (c *ClientImpl) GetAuthorizationURL(redirectURI, state string, scopes []str
 
 // ExchangeCodeForToken exchanges an authorization code for an access token
 func (c *ClientImpl) ExchangeCodeForToken(ctx context.Context, code, redirectURI string) (*UserToken, error) {
+	fmt.Println("1------------------------------------------")
+
 	data := url.Values{}
 	data.Set("client_id", c.clientID)
 	data.Set("client_secret", c.clientSecret)
@@ -407,6 +409,74 @@ func (c *ClientImpl) GetCategories(ctx context.Context, limit int, sortBy string
 		Msg("Successfully fetched categories from Twitch API")
 
 	return &categoriesResponse, nil
+}
+
+// GetUserFollows fetches the channels that a user follows from Twitch API
+func (c *ClientImpl) GetUserFollows(ctx context.Context, userID string, userToken string) (*FollowsResponse, error) {
+	// Validate required parameters
+	if userID == "" {
+		return nil, fmt.Errorf("userID is required")
+	}
+	if userToken == "" {
+		return nil, fmt.Errorf("userToken is required")
+	}
+
+	// Build request URL with user_id parameter
+	url := fmt.Sprintf("%s%s?user_id=%s", TwitchAPIBaseURL, FollowsEndpoint, userID)
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set required headers - use user token for authorization
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	req.Header.Set("Client-Id", c.clientID)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make the request
+	log.Debug().Str("url", url).Str("user_id", userID).Msg("Making request to Twitch API for user follows")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		log.Error().Err(err).Str("url", url).Msg("Failed to make request to Twitch API for user follows")
+		return nil, fmt.Errorf("failed to make request to Twitch API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Handle HTTP error status codes
+	if resp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status_code", resp.StatusCode).
+			Str("response_body", string(body)).
+			Str("url", url).
+			Msg("Twitch API returned error status for user follows")
+		return nil, fmt.Errorf("twitch API returned error status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse JSON response
+	var followsResponse FollowsResponse
+	if err := json.Unmarshal(body, &followsResponse); err != nil {
+		log.Error().
+			Err(err).
+			Str("response_body", string(body)).
+			Msg("Failed to parse JSON response from Twitch API for user follows")
+		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	log.Debug().
+		Int("follows_count", len(followsResponse.Data)).
+		Int("total_follows", followsResponse.Total).
+		Str("user_id", userID).
+		Msg("Successfully fetched user follows from Twitch API")
+
+	return &followsResponse, nil
 }
 
 // buildStreamsURL constructs the Twitch API URL with query parameters

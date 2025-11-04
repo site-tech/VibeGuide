@@ -69,6 +69,23 @@ func (m *mockTwitchClient) GetStreams(ctx context.Context, params twitch.Streams
 	return m.streams, nil
 }
 
+func (m *mockTwitchClient) GetUserFollows(ctx context.Context, userID string, userToken string) (*twitch.FollowsResponse, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.FollowsResponse{
+		Data: []twitch.Follow{
+			{
+				BroadcasterID:    "123456",
+				BroadcasterLogin: "teststreamer",
+				BroadcasterName:  "TestStreamer",
+				FollowedAt:       "2023-01-01T00:00:00Z",
+			},
+		},
+		Total: 1,
+	}, nil
+}
+
 // mockTwitchClientWithLimit implements twitch.Client for testing and tracks the limit parameter
 type mockTwitchClientWithLimit struct {
 	streams       *twitch.StreamsResponse
@@ -128,6 +145,23 @@ func (m *mockTwitchClientWithLimit) GetStreams(ctx context.Context, params twitc
 		return nil, fmt.Errorf("%s", m.errMsg)
 	}
 	return m.streams, nil
+}
+
+func (m *mockTwitchClientWithLimit) GetUserFollows(ctx context.Context, userID string, userToken string) (*twitch.FollowsResponse, error) {
+	if m.shouldErr {
+		return nil, fmt.Errorf("%s", m.errMsg)
+	}
+	return &twitch.FollowsResponse{
+		Data: []twitch.Follow{
+			{
+				BroadcasterID:    "123456",
+				BroadcasterLogin: "teststreamer",
+				BroadcasterName:  "TestStreamer",
+				FollowedAt:       "2023-01-01T00:00:00Z",
+			},
+		},
+		Total: 1,
+	}, nil
 }
 
 // createTestStreamsResponse creates a sample streams response for testing

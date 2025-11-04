@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { getTopCategories, getStreamsByCategory } from './lib/api'
+import { getTopCategories, getStreamsByCategory, getUserFollows, getCurrentUser } from './lib/api'
 import { supabase } from './lib/supabase'
 
 function App() {
@@ -14,6 +14,9 @@ function App() {
   const [isAutoRotating, setIsAutoRotating] = useState(true) // Auto-rotate streams every 90 seconds
   const [user, setUser] = useState(null) // Twitch user data
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [followedChannels, setFollowedChannels] = useState(new Set()) // Set of broadcaster_login values
+  const [followsLoading, setFollowsLoading] = useState(false)
+  const [followsError, setFollowsError] = useState(null)
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now(), isAutoScrolling: false })
@@ -25,17 +28,41 @@ function App() {
     return sessionStorage.getItem('showTopBlanks') === 'true'
   })
 
+  // Fetch user follows data
+  const fetchUserFollows = async () => {
+    try {
+      setFollowsLoading(true)
+      setFollowsError(null)
+      
+      const follows = await getUserFollows()
+      
+      // Create a Set of broadcaster_login values for quick lookup
+      const followedSet = new Set(follows.map(follow => follow.broadcaster_login))
+      setFollowedChannels(followedSet)
+    } catch (error) {
+      setFollowsError(error.message)
+      // Keep existing followed channels on error for graceful degradation
+      // Hearts will simply not show if follow data fails to load
+    } finally {
+      setFollowsLoading(false)
+    }
+  }
+
   // Check for existing Supabase session on mount
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        setUser({
+        const userData = {
           id: session.user.id,
           email: session.user.email,
           display_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name,
           login: session.user.user_metadata?.preferred_username || session.user.user_metadata?.user_name,
-          profile_image_url: session.user.user_metadata?.avatar_url
-        })
+          profile_image_url: session.user.user_metadata?.avatar_url,
+          twitch_user_id: session.user.user_metadata?.provider_id || session.user.user_metadata?.sub
+        }
+        setUser(userData)
+        // Fetch follows when user is authenticated
+        fetchUserFollows()
       }
     })
 
@@ -44,15 +71,24 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        setUser({
+        const userData = {
           id: session.user.id,
           email: session.user.email,
           display_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name,
           login: session.user.user_metadata?.preferred_username || session.user.user_metadata?.user_name,
-          profile_image_url: session.user.user_metadata?.avatar_url
-        })
+          profile_image_url: session.user.user_metadata?.avatar_url,
+          twitch_user_id: session.user.user_metadata?.provider_id || session.user.user_metadata?.sub
+        }
+
+        setUser(userData)
+        // Fetch follows when user logs in
+        fetchUserFollows()
       } else {
         setUser(null)
+        // Clear follow data when user logs out
+        setFollowedChannels(new Set())
+        setFollowsError(null)
+        setFollowsLoading(false)
       }
     })
 
@@ -62,12 +98,15 @@ function App() {
   // Handle login button click
   const handleLogin = async () => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error, data } = await supabase.auth.signInWithOAuth({
         provider: 'twitch',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: window.location.origin,
+          scopes: 'user:read:follows'
         }
       })
+
+
       
       if (error) throw error
     } catch (error) {
@@ -412,16 +451,7 @@ function App() {
       // Start from current position (no snap)
       const startScroll = currentScroll
       
-      console.log('Auto-scroll calculation:', { 
-        currentScroll, 
-        rowHeight,
-        currentRow: currentRow.toFixed(4),
-        roundedRow: roundedRow.toFixed(2),
-        currentSection,
-        currentBoundary, 
-        targetBoundary,
-        targetScroll 
-      })
+
       
       // Calculate total rows (4 blank at top if shown + 50 channels + 4 blank at bottom)
       const totalRows = showTopBlanks ? 58 : 54
@@ -442,16 +472,10 @@ function App() {
       const scrollDistance = actualTargetScroll - startScroll
       const rowsToScroll = scrollDistance / rowHeight
       
-      console.log('Scroll distance calculation:', {
-        startScroll,
-        actualTargetScroll,
-        scrollDistance,
-        rowsToScroll: rowsToScroll.toFixed(2)
-      })
+
       
       // If scroll distance is too small, something is wrong - don't scroll
       if (scrollDistance < 1) {
-        console.error('Scroll distance too small, aborting auto-scroll')
         autoScrollRef.current.isAutoScrolling = false
         return
       }
@@ -481,24 +505,16 @@ function App() {
           const finalScroll = scrollElement.scrollTop
           const maxScroll = scrollElement.scrollHeight - scrollElement.clientHeight
           
-          console.log('Scroll check:', { 
-            finalScroll, 
-            bottomBlankStart, 
-            maxScroll,
-            showTopBlanks, 
-            rowsToScroll: rowsToScroll.toFixed(2) 
-          })
+
           
           // Check if we've reached the bottom blank rows OR we're near the end
           const reachedBottom = finalScroll >= bottomBlankStart - 100 || finalScroll >= maxScroll - 100
           
           if (reachedBottom) {
             // We're in the blank area, wait 5 seconds then reload
-            console.log('Reached bottom, waiting 5 seconds before reload...')
             autoScrollRef.current.lastInteraction = Date.now()
             
             autoScrollRef.current.timeout = setTimeout(() => {
-              console.log('Triggering reload with top blanks')
               sessionStorage.setItem('showTopBlanks', 'true')
               window.location.reload()
             }, 5000) // 5 seconds (half time)
@@ -510,21 +526,12 @@ function App() {
           const scrollCompletedTime = Date.now()
           autoScrollRef.current.lastInteraction = scrollCompletedTime
           
-          console.log('Auto-scroll completed, waiting 10 seconds...')
-          
           autoScrollRef.current.timeout = setTimeout(() => {
             const timeSinceLastInteraction = Date.now() - autoScrollRef.current.lastInteraction
-            console.log('Checking if should continue auto-scroll:', { 
-              timeSinceLastInteraction, 
-              shouldContinue: timeSinceLastInteraction >= 9900 // Allow 100ms tolerance
-            })
             
             // Check if user hasn't interacted in the last 10 seconds (with small tolerance)
             if (timeSinceLastInteraction >= 9900) {
-              console.log('Continuing auto-scroll...')
               startAutoScroll()
-            } else {
-              console.log('User interacted, not continuing auto-scroll')
             }
           }, 10000)
         } else {
@@ -557,10 +564,8 @@ function App() {
       // Clear the reload flag
       sessionStorage.removeItem('showTopBlanks')
       // Start auto-scroll after 5 seconds (half time) for smooth loop
-      console.log('Just reloaded, waiting 5 seconds before first scroll...')
       autoScrollRef.current.lastInteraction = Date.now()
       autoScrollRef.current.timeout = setTimeout(() => {
-        console.log('Starting first auto-scroll after reload...')
         startAutoScroll()
       }, 5000) // 5 second delay (half time) before first scroll after reload
     } else {
@@ -570,7 +575,6 @@ function App() {
 
     // Reset on user interaction
     const handleInteraction = () => {
-      console.log('User interaction detected')
       // Clear the reload flag on user interaction
       sessionStorage.removeItem('showTopBlanks')
       resetAutoScroll()
@@ -579,7 +583,6 @@ function App() {
     // Handle manual scroll - only reset if not auto-scrolling
     const handleScroll = () => {
       if (!autoScrollRef.current.isAutoScrolling) {
-        console.log('Manual scroll detected, resetting auto-scroll timer')
         handleInteraction()
       }
     }
@@ -1451,11 +1454,31 @@ function App() {
                         transition: 'background-color 0.2s ease'
                       }} 
                     />
-                    <span style={{ position: 'relative', zIndex: 1 }}>
+                    <span style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '0.5vw' }}>
                       {isLoadingStreams 
                         ? 'Loading...' 
                         : streams && streams[block.streamIndex] 
-                          ? streams[block.streamIndex].user_name 
+                          ? (
+                            <>
+                              {streams[block.streamIndex].user_name}
+                              {user && followedChannels.has(streams[block.streamIndex].user_login) && (
+                                <span 
+                                  style={{ 
+                                    color: '#674D82',
+                                    fontSize: 'clamp(18px, 1.8vw, 54px)',
+                                    textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+                                    lineHeight: 1,
+                                    marginLeft: '0.3vw',
+                                    display: 'inline-block',
+                                    verticalAlign: 'middle'
+                                  }}
+                                  aria-label="Followed channel"
+                                >
+                                  ♥
+                                </span>
+                              )}
+                            </>
+                          )
                           : 'No Stream'}
                     </span>
                   </button>

@@ -1,26 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { getTopCategories, getStreamsByCategory, getUserFollows, getCurrentUser } from './lib/api'
+import { getTopCategories, getStreamsByCategory, getUserFollows } from './lib/api'
 import { supabase } from './lib/supabase'
+import TwitchPlayer from './components/TwitchPlayer'
 
 function App() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const [currentTime, setCurrentTime] = useState(new Date())
   const [categories, setCategories] = useState([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
-  const [categoryStreams, setCategoryStreams] = useState({}) // Map of categoryId -> streams array
+  const [categoryStreams, setCategoryStreams] = useState({})
   const [isLoadingStreams, setIsLoadingStreams] = useState(false)
-  const [featuredStream, setFeaturedStream] = useState(null) // Random stream to feature
-  const [isAutoRotating, setIsAutoRotating] = useState(true) // Auto-rotate streams every 90 seconds
-  const [user, setUser] = useState(null) // Twitch user data
-  const [isAuthenticating, setIsAuthenticating] = useState(false)
-  const [followedChannels, setFollowedChannels] = useState(new Set()) // Set of broadcaster_login values
-  const [followsLoading, setFollowsLoading] = useState(false)
-  const [followsError, setFollowsError] = useState(null)
+  const [featuredStream, setFeaturedStream] = useState(null)
+  const [isAutoRotating, setIsAutoRotating] = useState(true)
+  const [user, setUser] = useState(null)
+  const [followedChannels, setFollowedChannels] = useState(new Set())
   const scrollRef = useRef(null)
   const scrollLockRef = useRef({ direction: null, startX: 0, startY: 0, scrollAccumulator: 0 })
   const autoScrollRef = useRef({ timeout: null, interval: null, lastInteraction: Date.now(), isAutoScrolling: false })
-  const streamRotationRef = useRef(null) // Timer for auto-rotating streams
+  const streamRotationRef = useRef(null)
+  const isInitialStreamSet = useRef(false)
   const rssScrollRef = useRef(null)
   
   // Check if we should show top blank rows (after reload)
@@ -31,20 +30,12 @@ function App() {
   // Fetch user follows data
   const fetchUserFollows = async () => {
     try {
-      setFollowsLoading(true)
-      setFollowsError(null)
-      
       const follows = await getUserFollows()
-      
-      // Create a Set of broadcaster_login values for quick lookup
       const followedSet = new Set(follows.map(follow => follow.broadcaster_login))
       setFollowedChannels(followedSet)
     } catch (error) {
-      setFollowsError(error.message)
+      console.error('Failed to fetch follows:', error)
       // Keep existing followed channels on error for graceful degradation
-      // Hearts will simply not show if follow data fails to load
-    } finally {
-      setFollowsLoading(false)
     }
   }
 
@@ -85,10 +76,7 @@ function App() {
         fetchUserFollows()
       } else {
         setUser(null)
-        // Clear follow data when user logs out
         setFollowedChannels(new Set())
-        setFollowsError(null)
-        setFollowsLoading(false)
       }
     })
 
@@ -284,16 +272,20 @@ function App() {
       })
       
       // Pick a random stream to feature BEFORE setting state
+      // Filter out mature content streams
       let selectedStream = null
       const allStreams = []
       categories.forEach((category, categoryIndex) => {
         const streams = streamsMap[category.id] || []
         streams.forEach(stream => {
-          allStreams.push({
-            ...stream,
-            categoryName: category.name,
-            categoryRank: categoryIndex + 1 // 1-indexed rank
-          })
+          // Only include non-mature streams
+          if (!stream.is_mature) {
+            allStreams.push({
+              ...stream,
+              categoryName: category.name,
+              categoryRank: categoryIndex + 1 // 1-indexed rank
+            })
+          }
         })
       })
       
@@ -306,6 +298,7 @@ function App() {
       setCategoryStreams(streamsMap)
       if (selectedStream) {
         setFeaturedStream(selectedStream)
+        isInitialStreamSet.current = true // Mark that initial stream is set
       }
       setIsLoadingStreams(false)
     }
@@ -315,21 +308,24 @@ function App() {
 
   // Auto-rotate featured stream every 90 seconds
   useEffect(() => {
-    if (!isAutoRotating || Object.keys(categoryStreams).length === 0) {
+    if (!isAutoRotating || Object.keys(categoryStreams).length === 0 || !isInitialStreamSet.current) {
       return
     }
 
     const rotateStream = () => {
-      // Build array of all streams
+      // Build array of all non-mature streams
       const allStreams = []
       categories.forEach((category, categoryIndex) => {
         const streams = categoryStreams[category.id] || []
         streams.forEach(stream => {
-          allStreams.push({
-            ...stream,
-            categoryName: category.name,
-            categoryRank: categoryIndex + 1
-          })
+          // Only include non-mature streams
+          if (!stream.is_mature) {
+            allStreams.push({
+              ...stream,
+              categoryName: category.name,
+              categoryRank: categoryIndex + 1
+            })
+          }
         })
       })
 
@@ -791,79 +787,44 @@ function App() {
     <div style={{
       width: '100%',
       height: '100vh',
-      position: 'relative',
+      display: 'flex',
+      flexDirection: 'column',
       overflow: 'hidden',
-      backgroundColor: '#1B0731'
+      backgroundColor: '#1B0731',
+      padding: '0 2.6vw 1.3vw 2.6vw',
+      boxSizing: 'border-box'
     }}>
-      {/* CRT Screen Effects Container */}
-      <div className="crt-container barrel-distortion" style={{
-        width: '100%',
-        height: '100vh',
-        backgroundColor: '#1B0731',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '0 2.6vw 1.3vw 2.6vw',
-        filter: 'blur(calc(0.025vw + 0.025vh))',
-        imageRendering: 'pixelated',
-        position: 'relative'
-      }}>
-      {/* Top Half - Split into 2 quadrants */}
+      {/* Top Half - Two Quadrants */}
       <div style={{
         display: 'flex',
         height: '50%',
-        width: '100%'
+        width: '100%',
+        gap: 0
       }}>
-        {/* Top Left Quadrant - Twitch Stream Embed */}
+        {/* Top Left Quadrant - Video Player (NO CRT effects) */}
         <div style={{
           width: '50%',
           height: '100%',
+          backgroundColor: '#000',
           position: 'relative',
-          backgroundColor: '#000'
+          zIndex: 100
         }}>
-          {featuredStream ? (
-            <iframe
-              key={featuredStream.user_login}
-              src={`https://player.twitch.tv/?channel=${featuredStream.user_login}&parent=${window.location.hostname}&muted=true&autoplay=true`}
-              height="100%"
-              width="100%"
-              allowFullScreen={true}
-              allow="autoplay; fullscreen"
-              style={{
-                border: 'none',
-                display: 'block'
-              }}
-              title={`${featuredStream.user_name} Twitch Stream`}
-            />
-          ) : (
-            <div style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-              fontWeight: 700,
-              fontStretch: 'condensed',
-              fontSize: quadrantFontSize,
-              textAlign: 'center',
-              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-              padding: '0 2vw'
-            }}>
-              {isLoadingStreams ? 'Loading Stream...' : 'No Stream Available'}
-            </div>
-          )}
+          <TwitchPlayer 
+            channel={featuredStream?.user_login}
+          />
         </div>
 
-        {/* Top Right Quadrant with gradient and stream details */}
-        <div style={{
+        {/* Top Right Quadrant - Stream Info (WITH CRT effects) */}
+        <div className="crt-container barrel-distortion" style={{
           width: '50%',
           height: '100%',
           position: 'relative',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-evenly',
-          alignItems: 'center'
+          alignItems: 'center',
+          filter: 'blur(calc(0.025vw + 0.025vh))',
+          imageRendering: 'pixelated'
         }}>
           <div style={{
             position: 'absolute',
@@ -882,7 +843,11 @@ function App() {
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '90%',
+            padding: '0 2vw'
           }}>
             {featuredStream ? featuredStream.categoryName : 'Category'}
           </div>
@@ -894,7 +859,11 @@ function App() {
             color: '#E3E07D',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '90%',
+            padding: '0 2vw'
           }}>
             {featuredStream ? featuredStream.user_name : 'StreamerName'}
           </div>
@@ -906,7 +875,11 @@ function App() {
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '90%',
+            padding: '0 2vw'
           }}>
             {today}
           </div>
@@ -918,21 +891,27 @@ function App() {
             color: 'white',
             textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
             zIndex: 1,
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '90%',
+            padding: '0 2vw'
           }}>
             {featuredStream ? `Channel ${featuredStream.categoryRank}` : 'Channel'}
           </div>
         </div>
       </div>
 
-      {/* Bottom Half - TV Guide Grid */}
-      <div style={{
-        height: '50vh',
+      {/* Bottom Half - TV Guide Grid (WITH CRT effects) */}
+      <div className="crt-container barrel-distortion" style={{
+        height: '50%',
         width: '100%',
         position: 'relative',
         overflow: 'hidden',
         borderRight: '5px solid rgba(0, 0, 0, 0.6)',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        filter: 'blur(calc(0.025vw + 0.025vh))',
+        imageRendering: 'pixelated'
       }}>
         {/* Static Current Time Cell */}
         <div style={{
@@ -1097,7 +1076,6 @@ function App() {
           <button 
             className="login-button" 
             onClick={user ? handleLogout : handleLogin}
-            disabled={isAuthenticating}
             style={{
               fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
               fontWeight: 700,
@@ -1112,12 +1090,11 @@ function App() {
               minHeight: headerRowHeight,
               flex: 1,
               position: 'relative',
-              cursor: isAuthenticating ? 'wait' : 'pointer',
+              cursor: 'pointer',
               pointerEvents: 'auto',
               border: 'none',
               background: 'none',
-              marginRight: '-5px',
-              opacity: isAuthenticating ? 0.7 : 1
+              marginRight: '-5px'
             }}
           >
             <div 
@@ -1145,7 +1122,7 @@ function App() {
               whiteSpace: 'nowrap',
               padding: '0 10px'
             }}>
-              {isAuthenticating ? 'Loading...' : user ? 'Logout' : 'Login'}
+              {user ? 'Logout' : 'Login'}
             </span>
           </button>
         </div>
@@ -1492,7 +1469,7 @@ function App() {
         </div>
       </div>
       
-      {/* Scanlines Overlay */}
+      {/* Scanlines Overlay - Behind video player */}
       <div className="scanlines" style={{
         position: 'fixed',
         top: 0,
@@ -1500,7 +1477,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9998,
+        zIndex: 1,
         background: 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px)',
         animation: 'scanline-flicker 0.1s infinite'
       }} />
@@ -1513,7 +1490,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9997,
+        zIndex: 1,
         background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 3px, transparent 3px, transparent 8px)',
         animation: 'vhs-tracking 8s linear infinite'
       }} />
@@ -1526,7 +1503,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9996,
+        zIndex: 1,
         background: 'linear-gradient(to bottom, transparent 0%, transparent 30%, rgba(0, 0, 0, 0.02) 30%, rgba(0, 0, 0, 0.02) 32%, transparent 32%, transparent 100%)',
         animation: 'vhs-horizontal-shake 4s infinite'
       }} />
@@ -1539,7 +1516,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9995,
+        zIndex: 1,
         animation: 'vhs-vertical-jitter 0.3s infinite'
       }} />
       
@@ -1551,7 +1528,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9994,
+        zIndex: 1,
         filter: 'saturate(0.85) contrast(1.05)',
         mixBlendMode: 'normal'
       }} />
@@ -1564,7 +1541,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9993,
+        zIndex: 1,
         background: 'transparent',
         animation: 'vhs-chromatic-aberration 5s infinite'
       }} />
@@ -1577,7 +1554,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9992,
+        zIndex: 1,
         opacity: 0.08,
         mixBlendMode: 'overlay',
         animation: 'vhs-noise 0.2s infinite'
@@ -1591,7 +1568,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9991,
+        zIndex: 1,
         background: 'rgba(255, 255, 255, 0.02)',
         animation: 'luma-flicker 0.08s infinite'
       }} />
@@ -1604,17 +1581,10 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 9990,
+        zIndex: 1,
         background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
         animation: 'static-burst 12s infinite'
       }} />
-      
-
-      
-
-      
-
-      </div>
     </div>
   )
 }

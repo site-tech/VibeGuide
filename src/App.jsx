@@ -3,6 +3,8 @@ import './App.css'
 import { getTopCategories, getStreamsByCategory, getUserFollows } from './lib/api'
 import { supabase } from './lib/supabase'
 import TwitchPlayer from './components/TwitchPlayer'
+import FunModeOverlay from './components/FunModeOverlay'
+import ModeToggle from './components/ModeToggle'
 
 function App() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
@@ -21,6 +23,18 @@ function App() {
   const streamRotationRef = useRef(null)
   const isInitialStreamSet = useRef(false)
   const rssScrollRef = useRef(null)
+  
+  // Fun mode state with localStorage persistence
+  const [funModeEnabled, setFunModeEnabled] = useState(() => {
+    return localStorage.getItem('funModeEnabled') === 'true'
+  })
+  
+  // Toggle fun mode and persist to localStorage
+  const toggleFunMode = () => {
+    const newValue = !funModeEnabled
+    setFunModeEnabled(newValue)
+    localStorage.setItem('funModeEnabled', String(newValue))
+  }
   
   // Check if we should show top blank rows (after reload)
   const [showTopBlanks] = useState(() => {
@@ -784,123 +798,125 @@ function App() {
   }
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      backgroundColor: '#1B0731',
-      padding: '0 2.6vw 1.3vw 2.6vw',
-      boxSizing: 'border-box'
-    }}>
-      {/* Top Half - Two Quadrants */}
+    <FunModeOverlay isEnabled={funModeEnabled}>
       <div style={{
-        display: 'flex',
-        height: '50%',
         width: '100%',
-        gap: 0
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        backgroundColor: '#1B0731',
+        padding: '0 2.6vw 1.3vw 2.6vw',
+        boxSizing: 'border-box'
       }}>
-        {/* Top Left Quadrant - Video Player (NO CRT effects) */}
+        {/* Top Half - Two Quadrants */}
         <div style={{
-          width: '50%',
-          height: '100%',
-          backgroundColor: '#000',
-          position: 'relative',
-          zIndex: 100
-        }}>
-          <TwitchPlayer 
-            channel={featuredStream?.user_login}
-          />
-        </div>
-
-        {/* Top Right Quadrant - Stream Info (WITH CRT effects) */}
-        <div className="crt-container barrel-distortion" style={{
-          width: '50%',
-          height: '100%',
-          position: 'relative',
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-evenly',
-          alignItems: 'center',
-          filter: 'blur(calc(0.025vw + 0.025vh))',
-          imageRendering: 'pixelated'
+          height: '50%',
+          width: '100%',
+          gap: 0
         }}>
+          {/* Top Left Quadrant - Video Player (NO CRT effects) */}
           <div style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '85%',
-            background: 'linear-gradient(to bottom, #674D82, transparent)',
-            zIndex: 0
-          }} />
-          <div style={{
-            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-            fontWeight: 700,
-            fontStretch: 'condensed',
-            fontSize: quadrantFontSize,
-            color: 'white',
-            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: '90%',
-            padding: '0 2vw'
+            width: '50%',
+            height: '100%',
+            backgroundColor: '#000',
+            position: 'relative',
+            zIndex: 100
           }}>
-            {featuredStream ? featuredStream.categoryName : 'Category'}
+            <TwitchPlayer 
+              channel={featuredStream?.user_login}
+            />
           </div>
-          <div style={{
-            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-            fontWeight: 700,
-            fontStretch: 'condensed',
-            fontSize: quadrantFontSize,
-            color: '#E3E07D',
-            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: '90%',
-            padding: '0 2vw'
+
+          {/* Top Right Quadrant - Stream Info (WITH CRT effects) */}
+          <div className="crt-container barrel-distortion" style={{
+            width: '50%',
+            height: '100%',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-evenly',
+            alignItems: 'center',
+            filter: 'blur(calc(0.025vw + 0.025vh))',
+            imageRendering: 'pixelated'
           }}>
-            {featuredStream ? featuredStream.user_name : 'StreamerName'}
-          </div>
-          <div style={{
-            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-            fontWeight: 700,
-            fontStretch: 'condensed',
-            fontSize: quadrantFontSize,
-            color: 'white',
-            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: '90%',
-            padding: '0 2vw'
-          }}>
-            {today}
-          </div>
-          <div style={{
-            fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
-            fontWeight: 700,
-            fontStretch: 'condensed',
-            fontSize: quadrantFontSize,
-            color: 'white',
-            textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: '90%',
-            padding: '0 2vw'
-          }}>
-            {featuredStream ? `Channel ${featuredStream.categoryRank}` : 'Channel'}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '85%',
+              background: 'linear-gradient(to bottom, #674D82, transparent)',
+              zIndex: 0
+            }} />
+            <ModeToggle isEnabled={funModeEnabled} onToggle={toggleFunMode} />
+            <div style={{
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: quadrantFontSize,
+              color: 'white',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              zIndex: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '90%',
+              padding: '0 2vw'
+            }}>
+              {featuredStream ? featuredStream.categoryName : 'Category'}
+            </div>
+            <div style={{
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: quadrantFontSize,
+              color: '#E3E07D',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              zIndex: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '90%',
+              padding: '0 2vw'
+            }}>
+              {featuredStream ? featuredStream.user_name : 'StreamerName'}
+            </div>
+            <div style={{
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: quadrantFontSize,
+              color: 'white',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              zIndex: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '90%',
+              padding: '0 2vw'
+            }}>
+              {today}
+            </div>
+            <div style={{
+              fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+              fontWeight: 700,
+              fontStretch: 'condensed',
+              fontSize: quadrantFontSize,
+              color: 'white',
+              textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+              zIndex: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '90%',
+              padding: '0 2vw'
+            }}>
+              {featuredStream ? `Channel ${featuredStream.categoryRank}` : 'Channel'}
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Bottom Half - TV Guide Grid (WITH CRT effects) */}
       <div className="crt-container barrel-distortion" style={{
@@ -1585,7 +1601,8 @@ function App() {
         background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
         animation: 'static-burst 12s infinite'
       }} />
-    </div>
+      </div>
+    </FunModeOverlay>
   )
 }
 

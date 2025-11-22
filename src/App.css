@@ -17,6 +17,42 @@ button:has(.filter-button-bg):hover .filter-button-bg {
   background-color: #7D5BA6 !important;
 }
 
+/* Mode toggle button hover effect */
+.mode-toggle:hover .mode-toggle-bg {
+  background-color: #7D5BA6 !important;
+}
+
+/* Mode toggle focus indicator for keyboard accessibility */
+.mode-toggle:focus {
+  outline: 3px solid #E3E07D;
+  outline-offset: 2px;
+}
+
+/* Mode toggle transition for smooth state changes */
+.mode-toggle {
+  transition: all 0.2s ease-in-out;
+}
+
+.mode-toggle-bg {
+  transition: background-color 0.2s ease-in-out;
+}
+
+/* DVD Bounce component styles */
+.dvd-bounce {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  will-change: transform;
+  user-select: none;
+}
+
+.dvd-bounce img {
+  display: block;
+  width: 120px;
+  height: auto;
+  pointer-events: none;
+}
+
 /* RSS feed scrolling animation */
 @keyframes scroll-left {
   0% {

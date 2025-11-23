@@ -49,6 +49,26 @@ function App() {
   const scrollTimeoutRef = useRef(null)
   const [overflowingCategories, setOverflowingCategories] = useState(new Set())
   
+  // Settings menu state
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsCrtEnabled, setSettingsCrtEnabled] = useState(true)
+  const [settingsLogoBouncerCount, setSettingsLogoBouncerCount] = useState(0)
+  
+  // Logo bouncer state - array of bouncing logos
+  const [bouncingLogos, setBouncingLogos] = useState([])
+  const bouncingLogosRef = useRef([])
+  const logoAnimationFrameRef = useRef(null)
+  
+  // Logo images pool (cycles through in order)
+  const logoImages = [
+    '/images/bouncer-ttv-guide.png',
+    '/images/bouncer-ttv-guide-white.png',
+    '/images/bouncer-kiro.png',
+    '/images/bouncer-vibe-guide.png',
+    '/images/bouncer-vibe-guide-white.png',
+    '/images/bouncer-twitch.png'
+  ]
+  
   // Check if we should show top blank rows (after reload)
   const [showTopBlanks] = useState(() => {
     return sessionStorage.getItem('showTopBlanks') === 'true'
@@ -154,8 +174,140 @@ function App() {
     return 0
   })
   
+  // Generate layout structure dynamically based on stream name lengths
+  const generateDynamicLayout = (categoryStreams, categories, includeTopBlanks) => {
+    // EDITABLE PARAMETERS
+    const MAX_GRID_POSITION = 45
+    const SIMILAR_LAYOUT_INTERVAL = 4
+    
+    const allRows = []
+    
+    // Create blank row - MUST have isBlank flag
+    const createBlankRow = () => [{
+      id: 0,
+      width: 45,
+      position: 0,
+      isBlank: true,
+      streamIndex: -1 // Invalid index to prevent rendering as stream cell
+    }]
+    
+    // Generate blocks based on stream name lengths
+    const generateRowBlocks = (rowIndex, streams) => {
+      const blocks = []
+      let currentPosition = 0
+      let blockId = 0
+      
+      if (!streams || streams.length === 0) {
+        // Fallback to random widths if no streams
+        while (currentPosition < MAX_GRID_POSITION) {
+          const width = Math.random() > 0.5 ? 1 : 2
+          const finalWidth = Math.min(width, MAX_GRID_POSITION - currentPosition)
+          blocks.push({
+            id: blockId++,
+            width: finalWidth,
+            position: currentPosition,
+            streamIndex: blockId - 1
+          })
+          currentPosition += finalWidth
+        }
+        return blocks
+      }
+      
+      // Assign widths based on name length
+      streams.forEach((stream, idx) => {
+        if (currentPosition >= MAX_GRID_POSITION) return
+        
+        const nameLength = stream?.user_name?.length || 10
+        let width
+        
+        // Longer names get wider cells
+        if (nameLength > 12) {
+          width = 2 // Wide cell for long names
+        } else if (nameLength > 8) {
+          width = 1.5 // Medium cell
+        } else {
+          width = 1 // Narrow cell for short names
+        }
+        
+        // Align to 3-cell boundaries
+        const remainingToNext3 = 3 - (currentPosition % 3)
+        if (remainingToNext3 === 1 && width > 1) {
+          width = 1 // Force 1 to stay aligned
+        }
+        
+        // Don't overflow
+        if (currentPosition + width > MAX_GRID_POSITION) {
+          width = MAX_GRID_POSITION - currentPosition
+        }
+        
+        blocks.push({
+          id: blockId++,
+          width: width,
+          position: currentPosition,
+          streamIndex: idx
+        })
+        
+        currentPosition += width
+      })
+      
+      // Fill remaining space if streams didn't fill the row
+      // Use modulo to cycle through available streams
+      while (currentPosition < MAX_GRID_POSITION) {
+        const width = Math.min(2, MAX_GRID_POSITION - currentPosition)
+        const validStreamIndex = streams.length > 0 ? (blockId % streams.length) : 0
+        blocks.push({
+          id: blockId++,
+          width: width,
+          position: currentPosition,
+          streamIndex: validStreamIndex // Cycle through available streams
+        })
+        currentPosition += width
+      }
+      
+      return blocks
+    }
+    
+    if (includeTopBlanks) {
+      for (let i = 0; i < 4; i++) {
+        allRows.push(createBlankRow())
+      }
+    }
+    
+    // Generate blocks for each category row (50 categories total)
+    // These will be at indices 4-53 if showTopBlanks, or 0-49 if not
+    for (let row = 0; row < 50; row++) {
+      const categoryIndex = row // Maps to category 0-49
+      const category = categories[categoryIndex]
+      const streams = category ? categoryStreams[category.id] : []
+      
+      let blocks
+      if (row % SIMILAR_LAYOUT_INTERVAL === 0 && row > 0) {
+        const prevBlocks = allRows[allRows.length - 1]
+        if (!prevBlocks[0]?.isBlank) {
+          blocks = prevBlocks.map((block, idx) => ({
+            ...block,
+            id: idx,
+            streamIndex: idx
+          }))
+        } else {
+          blocks = generateRowBlocks(row, streams)
+        }
+      } else {
+        blocks = generateRowBlocks(row, streams)
+      }
+      
+      allRows.push(blocks)
+    }
+    
+    for (let i = 0; i < 4; i++) {
+      allRows.push(createBlankRow())
+    }
+    
+    return allRows
+  }
+  
   // Generate layout structure for all rows once on mount (without text content)
-  const [rowLayouts] = useState(() => {
+  const [rowLayouts, setRowLayouts] = useState(() => {
     // EDITABLE PARAMETERS
     const SHOW_WIDTH_OPTIONS = [1, 1.5, 2] // Available widths for show blocks (in cells)
     const MAX_GRID_POSITION = 45 // Maximum position to stop generating blocks
@@ -164,12 +316,13 @@ function App() {
     
     const allRows = []
     
-    // Create blank row (single block spanning full width)
+    // Create blank row (single block spanning full width) - MUST have isBlank flag
     const createBlankRow = () => [{
       id: 0,
       width: 45, // Full width to match MAX_GRID_POSITION
       position: 0,
-      isBlank: true
+      isBlank: true,
+      streamIndex: -1 // Invalid index to prevent rendering as stream cell
     }]
     
     // Generate blocks that align to 3-cell boundaries
@@ -327,6 +480,11 @@ function App() {
         setFeaturedStream(selectedStream)
         isInitialStreamSet.current = true // Mark that initial stream is set
       }
+      
+      // Regenerate layout based on stream name lengths
+      const newLayout = generateDynamicLayout(streamsMap, categories, showTopBlanks)
+      setRowLayouts(newLayout)
+      
       setIsLoadingStreams(false)
     }
     
@@ -419,6 +577,14 @@ function App() {
     }
   }, [rssAnimationDelay])
   
+  // Regenerate layout when showTopBlanks changes (on page reload)
+  useEffect(() => {
+    if (categories.length > 0 && Object.keys(categoryStreams).length > 0) {
+      const newLayout = generateDynamicLayout(categoryStreams, categories, showTopBlanks)
+      setRowLayouts(newLayout)
+    }
+  }, [showTopBlanks, categories, categoryStreams]) // Regenerate when any dependency changes
+  
   // Set initial scroll position to skip top blank rows on first load
   useEffect(() => {
     const scrollElement = scrollRef.current
@@ -427,8 +593,7 @@ function App() {
     // Scroll past the top 4 blank rows on initial load
     const getRowHeight = () => {
       const vh = window.innerHeight / 100
-      const vw = window.innerWidth / 100
-      return (50 * vh - 4 * vw) / 4
+      return (50 * vh) / 5
     }
     
     // Small delay to ensure DOM is ready
@@ -444,9 +609,9 @@ function App() {
 
     const getRowHeight = () => {
       const vh = window.innerHeight / 100
-      const vw = window.innerWidth / 100
-      // Match the CSS calculation: (50vh - 4vw) / 4
-      return (50 * vh - 4 * vw) / 4 // typicalRowHeight in pixels
+      // Match the CSS calculation: 50vh / 5
+      // Borders are included via box-sizing: border-box
+      return (50 * vh) / 5 // typicalRowHeight in pixels
     }
 
     const startAutoScroll = () => {
@@ -646,8 +811,7 @@ function App() {
     // Calculate row height in pixels for snap scrolling
     const getRowHeight = () => {
       const vh = window.innerHeight / 100
-      const vw = window.innerWidth / 100
-      return (50 * vh - 4 * vw) / 4
+      return (50 * vh) / 5
     }
 
     const handleWheel = (e) => {
@@ -947,8 +1111,7 @@ function App() {
           
           const getRowHeight = () => {
             const vh = window.innerHeight / 100
-            const vw = window.innerWidth / 100
-            return (50 * vh - 4 * vw) / 4
+            return (50 * vh) / 5
           }
           
           const getColumnWidth = () => {
@@ -986,8 +1149,7 @@ function App() {
         if (focusedCell && scrollEl) {
           const getRowHeight = () => {
             const vh = window.innerHeight / 100
-            const vw = window.innerWidth / 100
-            return (50 * vh - 4 * vw) / 4
+            return (50 * vh) / 5
           }
           
           const rowHeight = getRowHeight()
@@ -1136,8 +1298,7 @@ function App() {
         
         const getRowHeight = () => {
           const vh = window.innerHeight / 100
-          const vw = window.innerWidth / 100
-          return (50 * vh - 4 * vw) / 4
+          return (50 * vh) / 5
         }
         
         const getColumnWidth = () => {
@@ -1207,6 +1368,21 @@ function App() {
       scrollTimeoutRef.current = setTimeout(() => {
         setIsScrolling(false)
       }, 150)
+      
+      // Sync right edge overlay with scroll
+      const rightEdgeOverlay = document.getElementById('right-edge-overlay')
+      const rightEdgeOverlayBg = document.getElementById('right-edge-overlay-bg')
+      const scrollTop = scrollElement.scrollTop
+      
+      if (rightEdgeOverlay) {
+        rightEdgeOverlay.style.transform = `translate3d(0, ${-scrollTop}px, 0)`
+        rightEdgeOverlay.style.webkitTransform = `translate3d(0, ${-scrollTop}px, 0)`
+      }
+      
+      if (rightEdgeOverlayBg) {
+        rightEdgeOverlayBg.style.transform = `translate3d(0, ${-scrollTop}px, 0)`
+        rightEdgeOverlayBg.style.webkitTransform = `translate3d(0, ${-scrollTop}px, 0)`
+      }
     }
 
     scrollElement.addEventListener('scroll', handleScroll, { passive: true })
@@ -1218,39 +1394,81 @@ function App() {
 
   // Detect text overflow and add animation class
   useEffect(() => {
+    let resizeTimeout
+    let checkTimeout
+    
     const checkOverflow = () => {
-      const newOverflowing = new Set()
-      const containers = document.querySelectorAll('.category-text-container')
-      
-      containers.forEach((container, index) => {
-        const textElement = container.querySelector('.category-scroll-text')
-        if (textElement) {
-          // Get the category name from the title attribute
-          const categoryName = textElement.getAttribute('title')
-          
-          // Add 10px padding buffer to ensure we catch text that's close to overflowing
-          const isOverflowing = textElement.scrollWidth > (container.clientWidth + 10)
-          
-          if (isOverflowing) {
-            textElement.classList.add('overflow')
-            if (categoryName) {
-              newOverflowing.add(categoryName)
+      // Small delay to let DOM update after resize
+      clearTimeout(checkTimeout)
+      checkTimeout = setTimeout(() => {
+        const newOverflowing = new Set()
+        const containers = document.querySelectorAll('.category-text-container')
+        
+        containers.forEach((container, index) => {
+          const textElement = container.querySelector('.category-scroll-text')
+          if (textElement) {
+            // Get the category name from the title attribute
+            const categoryName = textElement.getAttribute('title')
+            
+            // Add 10px padding buffer to ensure we catch text that's close to overflowing
+            const isOverflowing = textElement.scrollWidth > (container.clientWidth + 10)
+            
+            if (isOverflowing) {
+              textElement.classList.add('overflow')
+              if (categoryName) {
+                newOverflowing.add(categoryName)
+              }
+            } else {
+              textElement.classList.remove('overflow')
             }
-          } else {
-            textElement.classList.remove('overflow')
           }
+        })
+        
+        setOverflowingCategories(newOverflowing)
+      }, 50)
+    }
+
+    // Debounced resize handler
+    const handleResize = () => {
+      clearTimeout(resizeTimeout)
+      resizeTimeout = setTimeout(() => {
+        // Wait for any active animations to complete before checking
+        const animatingElements = document.querySelectorAll('.category-scroll-text.overflow.visible')
+        
+        if (animatingElements.length > 0) {
+          // Listen for animation end on any animating element
+          const handleAnimationEnd = () => {
+            checkOverflow()
+            animatingElements.forEach(el => {
+              el.removeEventListener('animationiteration', handleAnimationEnd)
+            })
+          }
+          
+          // Check on next animation iteration (when it loops)
+          animatingElements.forEach(el => {
+            el.addEventListener('animationiteration', handleAnimationEnd, { once: true })
+          })
+          
+          // Also set a fallback timeout in case no animations are running
+          setTimeout(checkOverflow, 200)
+        } else {
+          // No animations running, check immediately
+          checkOverflow()
         }
-      })
-      
-      setOverflowingCategories(newOverflowing)
+      }, 150)
     }
 
     // Check on mount and when categories change
     checkOverflow()
     
-    // Also check on window resize
-    window.addEventListener('resize', checkOverflow)
-    return () => window.removeEventListener('resize', checkOverflow)
+    // Add debounced resize listener
+    window.addEventListener('resize', handleResize)
+    
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      clearTimeout(resizeTimeout)
+      clearTimeout(checkTimeout)
+    }
   }, [categories, isLoadingCategories])
 
   // Use Intersection Observer to restart animation when cells come into view
@@ -1340,74 +1558,10 @@ function App() {
     }
   }, [showDvdLogo, dvdPosition, dvdVelocity, dvdLogoColor])
 
-  // DVD Logo idle animation
-  useEffect(() => {
-    let lastMouseMove = Date.now()
-    let lastManualScroll = Date.now()
-    
-    const resetIdleTimer = () => {
-      clearTimeout(dvdIdleTimeoutRef.current)
-      setShowDvdLogo(false)
-      
-      dvdIdleTimeoutRef.current = setTimeout(() => {
-        setShowDvdLogo(true)
-      }, 15000) // 15 seconds
-    }
-
-    const handleMouseMove = () => {
-      lastMouseMove = Date.now()
-      resetIdleTimer()
-    }
-
-    const handleKeyDown = () => {
-      resetIdleTimer()
-    }
-
-    const handleClick = () => {
-      resetIdleTimer()
-    }
-
-    const handleScroll = (e) => {
-      // Only reset if it's a manual scroll (not auto-scroll)
-      // Auto-scroll happens when isAutoScrolling is true
-      if (!autoScrollRef.current.isAutoScrolling) {
-        const now = Date.now()
-        // Debounce scroll events - only reset if it's been more than 100ms since last manual scroll
-        if (now - lastManualScroll > 100) {
-          lastManualScroll = now
-          resetIdleTimer()
-        }
-      }
-    }
-
-    // Only start timer if logo wasn't already active from previous session
-    const wasActive = sessionStorage.getItem('dvdLogoActive') === 'true'
-    if (!wasActive) {
-      resetIdleTimer()
-    }
-
-    // Listen for user activity (not auto-scroll)
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('click', handleClick)
-    
-    const scrollElement = scrollRef.current
-    if (scrollElement) {
-      scrollElement.addEventListener('wheel', handleScroll)
-      scrollElement.addEventListener('touchstart', handleScroll)
-    }
-
-    return () => {
-      clearTimeout(dvdIdleTimeoutRef.current)
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('click', handleClick)
-      if (scrollElement) {
-        scrollElement.removeEventListener('wheel', handleScroll)
-        scrollElement.removeEventListener('touchstart', handleScroll)
-      }
-    }
-  }, [])
+  // DVD Logo idle animation - DISABLED (replaced by Logo Bouncer)
+  // useEffect(() => {
+  //   ... idle animation code disabled
+  // }, [])
 
   // DVD Logo bouncing animation
   useEffect(() => {
@@ -1483,6 +1637,104 @@ function App() {
     }
   }, [showDvdLogo, dvdVelocity])
 
+  // Logo Bouncer - Handle count changes
+  useEffect(() => {
+    const currentCount = bouncingLogos.length
+    const targetCount = Math.min(settingsLogoBouncerCount, 20) // Max 20
+    
+    if (targetCount > currentCount) {
+      // Add new logos
+      const newLogos = []
+      for (let i = currentCount; i < targetCount; i++) {
+        // Random direction for velocity (matching DVD logo speed)
+        const vxDirection = Math.random() < 0.5 ? -1 : 1
+        const vyDirection = Math.random() < 0.5 ? -1 : 1
+        
+        newLogos.push({
+          id: Date.now() + i,
+          x: Math.random() * 85 + 5, // Random position 5-90%
+          y: Math.random() * 85 + 5,
+          vx: 0.1875 * vxDirection, // Same speed as DVD logo
+          vy: 0.125 * vyDirection,
+          currentImageIndex: Math.floor(Math.random() * logoImages.length) // Random starting image
+        })
+      }
+      setBouncingLogos(prev => [...prev, ...newLogos])
+    } else if (targetCount < currentCount) {
+      // Remove logos
+      setBouncingLogos(prev => prev.slice(0, targetCount))
+    }
+  }, [settingsLogoBouncerCount])
+
+  // Logo Bouncer - Animation loop
+  useEffect(() => {
+    if (bouncingLogos.length === 0) {
+      if (logoAnimationFrameRef.current) {
+        cancelAnimationFrame(logoAnimationFrameRef.current)
+      }
+      return
+    }
+
+    bouncingLogosRef.current = bouncingLogos
+
+    const logoWidthVw = 15 // Same size as DVD logo
+    const logoHeightVw = 15
+    const logoHeightVh = (logoHeightVw * window.innerWidth) / window.innerHeight
+
+    const animate = () => {
+      setBouncingLogos(prevLogos => {
+        return prevLogos.map(logo => {
+          let newX = logo.x + logo.vx
+          let newY = logo.y + logo.vy
+          let newVx = logo.vx
+          let newVy = logo.vy
+          let newImageIndex = logo.currentImageIndex
+
+          // Check horizontal bounds (in vw) - same as DVD logo
+          if (newX <= 0) {
+            newVx = Math.abs(newVx)
+            newX = 0
+            newImageIndex = (logo.currentImageIndex + 1) % logoImages.length
+          } else if (newX >= 100 - logoWidthVw) {
+            newVx = -Math.abs(newVx)
+            newX = 100 - logoWidthVw
+            newImageIndex = (logo.currentImageIndex + 1) % logoImages.length
+          }
+
+          // Check vertical bounds (in vh) - same as DVD logo
+          if (newY <= 0) {
+            newVy = Math.abs(newVy)
+            newY = 0
+            newImageIndex = (logo.currentImageIndex + 1) % logoImages.length
+          } else if (newY >= 100 - logoHeightVh) {
+            newVy = -Math.abs(newVy)
+            newY = 100 - logoHeightVh
+            newImageIndex = (logo.currentImageIndex + 1) % logoImages.length
+          }
+
+          return {
+            ...logo,
+            x: newX,
+            y: newY,
+            vx: newVx,
+            vy: newVy,
+            currentImageIndex: newImageIndex
+          }
+        })
+      })
+
+      logoAnimationFrameRef.current = requestAnimationFrame(animate)
+    }
+
+    logoAnimationFrameRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (logoAnimationFrameRef.current) {
+        cancelAnimationFrame(logoAnimationFrameRef.current)
+      }
+    }
+  }, [bouncingLogos.length])
+
   const formatTime = (date) => {
     const timeString = date.toLocaleTimeString('en-US', { 
       hour: '2-digit', 
@@ -1520,8 +1772,14 @@ function App() {
   // We need exactly 4 rows to fit perfectly in the visible area
   // Each row: (50vh - 4vw) / 4
   
-  const headerRowHeight = '4vw'
-  const typicalRowHeight = 'calc((50vh - 4vw) / 4)'
+  // All rows including header should be equal height
+  // Visible area = 50vh, divided by 5 rows (1 header + 4 content rows)
+  const headerRowHeight = 'calc(50vh / 5)'
+  const typicalRowHeight = 'calc(50vh / 5)'
+  // Dynamic border width based on row height (proportional sizing)
+  const borderWidth = 'calc((50vh / 5) * 0.10)' // 10% of row height for visible bevel
+  // Miter offset for clip-path (same as border width, expressed as percentage of row height)
+  const miterOffset = '10%' // 10% of element height for the angled cut
   
   // Font sizing based on container heights
   // Header row (4vw): 1 line of text with padding = 70% of height for text, reduced by 20%
@@ -1615,6 +1873,187 @@ function App() {
           filter: 'blur(calc(0.025vw + 0.025vh))',
           imageRendering: 'pixelated'
         }}>
+          {/* TTV Guide Logo */}
+          <img 
+            src="/images/ttv-guide-logo.png"
+            alt="TTV Guide Logo"
+            onClick={() => setShowSettings(!showSettings)}
+            style={{
+              position: 'absolute',
+              bottom: '0.5vw',
+              right: '0.5vw',
+              width: `calc(${typicalColumnWidth} * 0.4)`,
+              height: 'auto',
+              objectFit: 'contain',
+              zIndex: 10,
+              cursor: 'pointer',
+              pointerEvents: 'auto'
+            }}
+          />
+          
+          {/* Settings Menu */}
+          {showSettings && (
+            <div style={{
+              position: 'absolute',
+              top: '1vw',
+              right: '1vw',
+              left: '1vw',
+              height: 'calc(100% - 2vw)',
+              backgroundColor: '#674D82',
+              borderRadius: '2vw',
+              border: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+              boxShadow: '0 0 2vw rgba(0, 0, 0, 0.8)',
+              zIndex: 100,
+              padding: '2vw',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2vw',
+              overflow: 'hidden'
+            }}>
+              {/* X Close Button - Top Right */}
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{
+                  position: 'absolute',
+                  top: '1vw',
+                  right: '1vw',
+                  width: '2.8vw',
+                  height: '2.8vw',
+                  fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 'calc(1.68vw + 1.68vh)',
+                  lineHeight: 1,
+                  color: 'white',
+                  textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)',
+                  backgroundColor: '#423352',
+                  border: '2px solid rgba(255, 255, 255, 0.6)',
+                  borderRadius: '0.5vw',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0
+                }}
+              >
+                ×
+              </button>
+              
+              <div style={{
+                fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                fontWeight: 700,
+                fontSize: headerFontSize,
+                color: 'white',
+                textShadow: '4px 4px 0px rgba(0, 0, 0, 0.9)',
+                marginBottom: '1vw'
+              }}>
+                Settings
+              </div>
+              
+              {/* Extra CRT Checkbox */}
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1vw',
+                fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                fontWeight: 700,
+                fontSize: 'calc(1.68vw + 1.68vh)',
+                color: 'white',
+                textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)',
+                cursor: 'pointer'
+              }}>
+                <input 
+                  type="checkbox"
+                  checked={settingsCrtEnabled}
+                  onChange={(e) => setSettingsCrtEnabled(e.target.checked)}
+                  style={{
+                    width: '1.68vw',
+                    height: '1.68vw',
+                    cursor: 'pointer'
+                  }}
+                />
+                Extra CRT
+              </label>
+              
+              {/* Logo Bouncer Number Input */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1vw',
+                fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                fontWeight: 700,
+                fontSize: 'calc(1.68vw + 1.68vh)',
+                color: 'white',
+                textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)'
+              }}>
+                <span>Logo Bouncer</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5vw' }}>
+                  <button
+                    onClick={() => setSettingsLogoBouncerCount(Math.max(0, settingsLogoBouncerCount - 1))}
+                    style={{
+                      width: '2.24vw',
+                      height: '2.24vw',
+                      fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 'calc(1.68vw + 1.68vh)',
+                      lineHeight: 1,
+                      color: 'white',
+                      textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)',
+                      backgroundColor: '#423352',
+                      border: '2px solid rgba(255, 255, 255, 0.6)',
+                      borderRadius: '0.5vw',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0
+                    }}
+                  >
+                    −
+                  </button>
+                  <div style={{
+                    width: '3.36vw',
+                    height: '2.24vw',
+                    backgroundColor: '#423352',
+                    border: '2px solid rgba(255, 255, 255, 0.6)',
+                    borderRadius: '0.5vw',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 'calc(1.68vw + 1.68vh)',
+                    lineHeight: 1,
+                    color: 'white',
+                    textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)'
+                  }}>
+                    {settingsLogoBouncerCount}
+                  </div>
+                  <button
+                    onClick={() => setSettingsLogoBouncerCount(Math.min(20, settingsLogoBouncerCount + 1))}
+                    style={{
+                      width: '2.24vw',
+                      height: '2.24vw',
+                      fontFamily: "'Barlow Condensed', 'Futura', 'Futura Bold Condensed', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 'calc(1.68vw + 1.68vh)',
+                      lineHeight: 1,
+                      color: 'white',
+                      textShadow: '2px 2px 0px rgba(0, 0, 0, 0.9)',
+                      backgroundColor: '#423352',
+                      border: '2px solid rgba(255, 255, 255, 0.6)',
+                      borderRadius: '0.5vw',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{
             position: 'absolute',
             top: 0,
@@ -1697,7 +2136,6 @@ function App() {
         width: '100%',
         position: 'relative',
         overflow: 'hidden',
-        borderRight: '5px solid rgba(0, 0, 0, 0.6)',
         boxSizing: 'border-box',
         filter: 'blur(calc(0.025vw + 0.025vh))',
         imageRendering: 'pixelated'
@@ -1723,10 +2161,10 @@ function App() {
               width: '100%',
               height: '100%',
               backgroundColor: '#674D82',
-              borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-              borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-              borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-              borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+              borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+              borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+              borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+              borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
               zIndex: -1
             }} />
             <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(currentTime)}</span>
@@ -1742,7 +2180,7 @@ function App() {
             left: firstColumnWidth,
             right: 0,
             height: headerRowHeight,
-            zIndex: 3,
+            zIndex: 20,
             backgroundColor: '#1B0731',
             display: 'flex',
             pointerEvents: 'none'
@@ -1772,10 +2210,10 @@ function App() {
                 width: '100%',
                 height: '100%',
                 backgroundColor: '#674D82',
-                borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                 zIndex: -1,
                 transition: 'background-color 0.2s ease'
               }} 
@@ -1828,10 +2266,10 @@ function App() {
                 width: '100%',
                 height: '100%',
                 backgroundColor: '#674D82',
-                borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                 zIndex: -1,
                 transition: 'background-color 0.2s ease'
               }} 
@@ -1895,10 +2333,10 @@ function App() {
                 width: '100%',
                 height: '100%',
                 backgroundColor: '#674D82',
-                borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                 zIndex: -1,
                 transition: 'background-color 0.2s ease'
               }} 
@@ -1909,16 +2347,101 @@ function App() {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              padding: '0 10px'
+              padding: '0 15px 0 10px'
             }}>
               {user ? 'Logout' : 'Login'}
             </span>
           </button>
         </div>
         
-
+        {/* Static Header Row Right Edge - Purple Background */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          right: '-1px',
+          width: borderWidth,
+          height: headerRowHeight,
+          backgroundColor: '#674D82',
+          clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`,
+          zIndex: 9998,
+          pointerEvents: 'none'
+        }} />
         
-
+        {/* Static Header Row Right Edge - Dark Shadow */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          right: '-1px',
+          width: borderWidth,
+          height: headerRowHeight,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`,
+          zIndex: 9999,
+          pointerEvents: 'none'
+        }} />
+        
+        {/* COMMENTED OUT - Old external scrolling elements - now inside grid rows */}
+        {/* <div 
+          id="right-edge-overlay-bg"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: '-1px',
+            width: '6px',
+            height: '100%',
+            zIndex: 3,
+            pointerEvents: 'none',
+            willChange: 'transform',
+            clipPath: `inset(${headerRowHeight} 0 0 0)`
+          }}
+        >
+          {Array.from({ length: 60 }).map((_, rowIndex) => (
+            <div 
+              key={`right-edge-bg-${rowIndex}`}
+              style={{
+                position: 'absolute',
+                top: `calc(${headerRowHeight} + ${typicalRowHeight} * ${rowIndex})`,
+                left: 0,
+                width: '100%',
+                height: typicalRowHeight,
+                backgroundColor: '#423352',
+                clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`,
+                boxSizing: 'border-box'
+              }}
+            />
+          ))}
+        </div>
+        
+        <div 
+          id="right-edge-overlay"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: '-1px',
+            width: '6px',
+            height: '100%',
+            zIndex: 4,
+            pointerEvents: 'none',
+            willChange: 'transform',
+            clipPath: `inset(${headerRowHeight} 0 0 0)`
+          }}
+        >
+          {Array.from({ length: 60 }).map((_, rowIndex) => (
+            <div 
+              key={`right-edge-${rowIndex}`}
+              style={{
+                position: 'absolute',
+                top: `calc(${headerRowHeight} + ${typicalRowHeight} * ${rowIndex})`,
+                left: 0,
+                width: '100%',
+                height: typicalRowHeight,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`,
+                boxSizing: 'border-box'
+              }}
+            />
+          ))}
+        </div> */}
         
         {/* Scrollable Content Area with hidden scrollbars */}
         <div 
@@ -1983,21 +2506,29 @@ function App() {
                 border: isBlankRow ? 'none' : undefined
               }}>
                 {/* First Column - Sticky */}
-                <div style={{
-                  ...firstColumnStyle, 
-                  height: typicalRowHeight,
-                  width: firstColumnWidth,
-                  minWidth: firstColumnWidth,
-                  maxWidth: firstColumnWidth,
-                  position: 'sticky',
-                  left: 0,
-                  flexDirection: 'column',
-                  gap: '0.2vh',
-                  padding: '0 0.5vw',
-                  backgroundColor: '#1B0731',
-                  zIndex: 3,
-                  overflow: 'hidden'
-                }}>
+                <a 
+                  href={!isBlank && category ? `https://www.twitch.tv/directory/category/${encodeURIComponent(category.name.toLowerCase().replace(/\s+/g, '-'))}` : undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    ...firstColumnStyle, 
+                    height: typicalRowHeight,
+                    width: firstColumnWidth,
+                    minWidth: firstColumnWidth,
+                    maxWidth: firstColumnWidth,
+                    position: 'sticky',
+                    left: 0,
+                    flexDirection: 'column',
+                    gap: '0.2vh',
+                    padding: '0 0.5vw',
+                    backgroundColor: '#1B0731',
+                    zIndex: 3,
+                    overflow: 'hidden',
+                    textDecoration: 'none',
+                    cursor: !isBlank && category ? 'pointer' : 'default',
+                    pointerEvents: !isBlank && category ? 'auto' : 'none'
+                  }}
+                >
                   <div style={{
                     position: 'absolute',
                     top: 0,
@@ -2005,10 +2536,10 @@ function App() {
                     width: '100%',
                     height: '100%',
                     backgroundColor: '#312043',
-                    borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                    borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                    borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                    borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                    borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                    borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                    borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                    borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                     boxSizing: 'border-box',
                     zIndex: -1
                   }} />
@@ -2048,7 +2579,7 @@ function App() {
                       </div>
                     </>
                   )}
-                </div>
+                </a>
                 
                 {blocks.map((block, blockIndex) => {
                 // For blank blocks, calculate width to span all visible columns
@@ -2087,10 +2618,10 @@ function App() {
                           width: '100%',
                           height: '100%',
                           backgroundColor: '#423352',
-                          borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                          borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                          borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                          borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                          borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                          borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                          borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                          borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                           boxSizing: 'border-box',
                           zIndex: -1,
                           transition: 'background-color 0.2s ease'
@@ -2184,10 +2715,10 @@ function App() {
                         width: '100%',
                         height: '100%',
                         backgroundColor: '#423352',
-                        borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                        borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                        borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                        borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                        borderTop: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                        borderLeft: `${borderWidth} solid rgba(255, 255, 255, 0.6)`,
+                        borderBottom: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
+                        borderRight: `${borderWidth} solid rgba(0, 0, 0, 0.6)`,
                         boxSizing: 'border-box',
                         zIndex: -1,
                         transition: 'background-color 0.2s ease'
@@ -2223,6 +2754,39 @@ function App() {
                   </button>
                 )
                 })}
+                
+                {/* Right Edge Elements for this row - Sticky to viewport */}
+                <div style={{
+                  position: 'sticky',
+                  top: 0,
+                  right: '-1px',
+                  width: borderWidth,
+                  height: '100%',
+                  pointerEvents: 'none',
+                  marginLeft: 'auto',
+                  zIndex: 10
+                }}>
+                  {/* Purple Background */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#423352',
+                    clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`
+                  }} />
+                  {/* Dark Shadow */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    clipPath: `polygon(0 ${miterOffset}, 100% 0, 100% 100%, 0 100%)`
+                  }} />
+                </div>
               </div>
             )
           })}
@@ -2322,6 +2886,119 @@ function App() {
         animation: 'vhs-noise 0.2s infinite'
       }} />
       
+      {/* VHS Tape Roll - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '300%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 49%, rgba(0, 0, 0, 0.3) 49%, rgba(0, 0, 0, 0.3) 51%, transparent 51%, transparent 100%)',
+          backgroundSize: '100% 33.33%',
+          animation: 'vhs-tape-roll 20s infinite',
+          opacity: 0.6
+        }} />
+      )}
+      
+      {/* Phosphor Persistence - Ghosting/trailing effect - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10000,
+          background: 'linear-gradient(to bottom, rgba(0, 255, 100, 0.03) 0%, rgba(0, 255, 100, 0.02) 50%, rgba(0, 255, 100, 0.01) 100%)',
+          mixBlendMode: 'screen',
+          animation: 'phosphor-fade 2s ease-in-out infinite alternate'
+        }} />
+      )}
+      
+      {/* 11. Magnetic Interference - Wavy distortion bands - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 0, 255, 0.05) 50px, transparent 100px)',
+          animation: 'magnetic-interference 8s linear infinite',
+          mixBlendMode: 'overlay'
+        }} />
+      )}
+      
+      {/* 12. Vignette Darkening - Darker corners like old CRT - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
+          boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
+        }} />
+      )}
+      
+      {/* 13. RGB Convergence Issues - Misaligned color channels at edges - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'linear-gradient(90deg, rgba(255, 0, 0, 0.1) 0%, transparent 10%, transparent 90%, rgba(0, 0, 255, 0.1) 100%)',
+          mixBlendMode: 'screen'
+        }} />
+      )}
+      
+      {/* 18. Analog Signal Noise - More pronounced static in dark areas - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.15\'/%3E%3C/svg%3E")',
+          opacity: 0.3,
+          mixBlendMode: 'overlay',
+          animation: 'analog-noise 0.1s infinite'
+        }} />
+      )}
+      
+      {/* 19. Chroma Noise - Color speckles in shadows - Only when Extra CRT is enabled */}
+      {settingsCrtEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10001,
+          background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'chroma\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' /%3E%3CfeColorMatrix type=\'hueRotate\' values=\'180\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23chroma)\' opacity=\'0.08\'/%3E%3C/svg%3E")',
+          opacity: 0.2,
+          mixBlendMode: 'color',
+          animation: 'chroma-noise 0.15s infinite'
+        }} />
+      )}
+      
       {/* Luma Noise - brightness flickering */}
       <div style={{
         position: 'fixed',
@@ -2348,14 +3025,20 @@ function App() {
         animation: 'static-burst 12s infinite'
       }} />
       
-      {/* DVD Logo Bouncing Animation */}
-      {showDvdLogo && (
+      {/* DVD Logo Bouncing Animation - DISABLED (replaced by Logo Bouncer) */}
+      {/* {showDvdLogo && (
+        <div>...</div>
+      )} */}
+      
+      {/* Logo Bouncers */}
+      {bouncingLogos.map(logo => (
         <div 
+          key={logo.id}
           className="crt-container"
           style={{
             position: 'fixed',
-            left: `${dvdPosition.x}vw`,
-            top: `${dvdPosition.y}vh`,
+            left: `${logo.x}vw`,
+            top: `${logo.y}vh`,
             width: '15vw',
             height: 'auto',
             pointerEvents: 'none',
@@ -2364,8 +3047,8 @@ function App() {
             willChange: 'transform'
           }}>
           <img 
-            src={`/images/ttv-guide-logo-${dvdLogoColor}.png`}
-            alt="TTV Guide Logo"
+            src={logoImages[logo.currentImageIndex]}
+            alt="Bouncing Logo"
             style={{
               width: '100%',
               height: 'auto',
@@ -2374,7 +3057,7 @@ function App() {
             }}
           />
         </div>
-      )}
+      ))}
     </div>
   )
 }

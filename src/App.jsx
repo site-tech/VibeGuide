@@ -51,7 +51,7 @@ function App() {
   
   // Settings menu state
   const [showSettings, setShowSettings] = useState(false)
-  const [settingsCrtEnabled, setSettingsCrtEnabled] = useState(true)
+  const [settingsCrtEnabled, setSettingsCrtEnabled] = useState(false)
   const [settingsLogoBouncerCount, setSettingsLogoBouncerCount] = useState(0)
   
   // Logo bouncer state - array of bouncing logos
@@ -2188,7 +2188,7 @@ function App() {
         >
           {/* Ad Banner Button - spans 2 cells */}
           <button 
-            onClick={() => window.open('https://kiroween.devpost.com/?ref_feature=challenge&ref_medium=your-open-hackathons&ref_content=Submissions+open', '_blank')}
+            onClick={() => window.open('https://devpost.com/software/vibeguide', '_blank')}
             style={{
               ...headerCellStyle,
               position: 'relative',
@@ -2632,13 +2632,13 @@ function App() {
                         alt={`Advertisement ${adImageNumber}`}
                         style={{
                           position: 'absolute',
-                          top: '5px',
-                          left: '5px',
-                          right: '5px',
-                          bottom: '5px',
-                          width: 'calc(100% - 10px)',
-                          height: 'calc(100% - 10px)',
-                          objectFit: 'cover',
+                          top: borderWidth,
+                          left: borderWidth,
+                          right: borderWidth,
+                          bottom: borderWidth,
+                          width: `calc(100% - ${borderWidth} * 2)`,
+                          height: `calc(100% - ${borderWidth} * 2)`,
+                          objectFit: 'contain',
                           objectPosition: 'left center',
                           pointerEvents: 'none',
                           zIndex: 1

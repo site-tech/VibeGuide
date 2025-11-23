@@ -2,10 +2,10 @@
   display: none;
 }
 
-/* Filter button hover effect */
-button:has(.filter-button-bg):hover .filter-button-bg {
+/* Filter button hover effect - DISABLED for RSS feed */
+/* button:has(.filter-button-bg):hover .filter-button-bg {
   background-color: #7D5BA6 !important;
-}
+} */
 
 /* Show button hover effect */
 .show-button:hover .show-button-bg,

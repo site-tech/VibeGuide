@@ -22,6 +22,33 @@ function App() {
   const isInitialStreamSet = useRef(false)
   const rssScrollRef = useRef(null)
   
+  // DVD Logo bouncing state - restore from sessionStorage if it was active
+  const [showDvdLogo, setShowDvdLogo] = useState(() => {
+    return sessionStorage.getItem('dvdLogoActive') === 'true'
+  })
+  const [dvdPosition, setDvdPosition] = useState(() => {
+    const saved = sessionStorage.getItem('dvdPosition')
+    return saved ? JSON.parse(saved) : { x: 5, y: 5 }
+  })
+  const [dvdVelocity, setDvdVelocity] = useState(() => {
+    const saved = sessionStorage.getItem('dvdVelocity')
+    return saved ? JSON.parse(saved) : { x: 0.1875, y: 0.125 }
+  })
+  const [dvdLogoColor, setDvdLogoColor] = useState(() => {
+    const saved = sessionStorage.getItem('dvdLogoColor')
+    return saved || 'color' // 'color' or 'white'
+  })
+  const dvdIdleTimeoutRef = useRef(null)
+  const dvdAnimationRef = useRef(null)
+  const lastBounceRef = useRef({ x: false, y: false })
+  
+  // Keyboard navigation state
+  const [focusedCell, setFocusedCell] = useState(null) // { rowIndex, blockIndex }
+  const gridMapRef = useRef([]) // Navigable grid structure
+  const [isScrolling, setIsScrolling] = useState(false)
+  const scrollTimeoutRef = useRef(null)
+  const [overflowingCategories, setOverflowingCategories] = useState(new Set())
+  
   // Check if we should show top blank rows (after reload)
   const [showTopBlanks] = useState(() => {
     return sessionStorage.getItem('showTopBlanks') === 'true'
@@ -476,6 +503,9 @@ function App() {
         return
       }
       
+      // Store target scroll for speed-up feature
+      autoScrollRef.current.targetScroll = actualTargetScroll
+      
       // Adjust duration based on distance: 2 seconds per row
       // This keeps the speed consistent whether scrolling 3.5 rows or 4 rows
       const duration = Math.max(rowsToScroll * 2000, 1000) // Minimum 1 second
@@ -511,6 +541,7 @@ function App() {
             autoScrollRef.current.lastInteraction = Date.now()
             
             autoScrollRef.current.timeout = setTimeout(() => {
+              // DVD logo state is already being saved continuously if active
               sessionStorage.setItem('showTopBlanks', 'true')
               window.location.reload()
             }, 5000) // 5 seconds (half time)
@@ -603,7 +634,6 @@ function App() {
   useEffect(() => {
     const scrollElement = scrollRef.current
     const headerRow = document.getElementById('header-row')
-    const firstColumn = document.getElementById('first-column')
     
     if (!scrollElement) return
 
@@ -613,21 +643,25 @@ function App() {
       return 18.96 * vw // typicalColumnWidth in pixels
     }
 
-    const handleScroll = () => {
-      // Header row stays static, don't transform it
-      const blankRowAds = document.getElementById('blank-row-ads')
-      if (firstColumn) {
-        firstColumn.style.transform = `translateY(-${scrollElement.scrollTop}px)`
-      }
-      if (blankRowAds) {
-        blankRowAds.style.transform = `translateY(-${scrollElement.scrollTop}px)`
-      }
+    // Calculate row height in pixels for snap scrolling
+    const getRowHeight = () => {
+      const vh = window.innerHeight / 100
+      const vw = window.innerWidth / 100
+      return (50 * vh - 4 * vw) / 4
     }
 
     const handleWheel = (e) => {
+      e.preventDefault()
+      
+      // If currently scrolling, ignore all wheel events including momentum
+      if (scrollLockRef.current.isScrolling) {
+        return
+      }
+      
       const deltaX = Math.abs(e.deltaX)
       const deltaY = Math.abs(e.deltaY)
       
+      // Determine direction on first wheel event of gesture
       if (!scrollLockRef.current.direction && (deltaX > 0 || deltaY > 0)) {
         if (deltaX > deltaY) {
           scrollLockRef.current.direction = 'horizontal'
@@ -637,18 +671,18 @@ function App() {
       }
 
       if (scrollLockRef.current.direction === 'horizontal') {
-        e.preventDefault()
+        // Accumulate scroll delta
+        scrollLockRef.current.scrollAccumulator += e.deltaX + e.deltaY
         
-        // Accumulate scroll delta with reduced sensitivity (40% of original)
-        scrollLockRef.current.scrollAccumulator += (e.deltaX + e.deltaY) * 0.4
-        
-        // Only trigger column snap when accumulated scroll exceeds threshold
-        const scrollThreshold = 30 // Require more scroll input to trigger
+        // Trigger 4-column scroll when threshold is reached
+        const scrollThreshold = 50 // Same as vertical for consistent responsiveness
         if (Math.abs(scrollLockRef.current.scrollAccumulator) >= scrollThreshold) {
           const columnWidth = getColumnWidth()
           const currentColumn = Math.round(scrollElement.scrollLeft / columnWidth)
           const scrollDirection = scrollLockRef.current.scrollAccumulator > 0 ? 1 : -1
-          const targetColumn = Math.max(0, currentColumn + scrollDirection)
+          
+          // Always scroll 4 columns
+          const targetColumn = Math.max(0, currentColumn + (scrollDirection * 4))
           const targetScroll = targetColumn * columnWidth
           
           scrollElement.scrollTo({
@@ -656,43 +690,798 @@ function App() {
             behavior: 'smooth'
           })
           
-          // Reset accumulator after snap
+          // Immediately block ALL further wheel events until cooldown expires
+          scrollLockRef.current.isScrolling = true
           scrollLockRef.current.scrollAccumulator = 0
+          scrollLockRef.current.direction = null
+          
+          // Unblock after cooldown - this blocks ALL momentum
+          setTimeout(() => {
+            scrollLockRef.current.isScrolling = false
+          }, 1200)
         }
       } else if (scrollLockRef.current.direction === 'vertical') {
-        const newScrollTop = scrollElement.scrollTop + e.deltaY + e.deltaX
+        // Accumulate vertical scroll delta
+        scrollLockRef.current.scrollAccumulator += e.deltaY + e.deltaX
+        
+        // Trigger 4-row scroll when threshold is reached
+        const scrollThreshold = 50 // Threshold to trigger snap
+        if (Math.abs(scrollLockRef.current.scrollAccumulator) >= scrollThreshold) {
+          const rowHeight = getRowHeight()
+          const currentRow = Math.round(scrollElement.scrollTop / rowHeight)
+          const scrollDirection = scrollLockRef.current.scrollAccumulator > 0 ? 1 : -1
+          
+          // Always scroll 4 rows
+          let targetRow = currentRow + (scrollDirection * 4)
+          
+          // Prevent scrolling up into top blank rows if they shouldn't be visible
+          const minRow = showTopBlanks ? 0 : 0
+          const maxRow = (showTopBlanks ? 58 : 54) - 1
+          targetRow = Math.max(minRow, Math.min(maxRow, targetRow))
+          
+          const targetScroll = targetRow * rowHeight
+          
+          scrollElement.scrollTo({
+            top: targetScroll,
+            behavior: 'smooth'
+          })
+          
+          // Immediately block ALL further wheel events until cooldown expires
+          scrollLockRef.current.isScrolling = true
+          scrollLockRef.current.scrollAccumulator = 0
+          scrollLockRef.current.direction = null
+          
+          // Unblock after cooldown - this blocks ALL momentum
+          setTimeout(() => {
+            scrollLockRef.current.isScrolling = false
+          }, 1200)
+        }
+      }
+    }
+
+    let touchStartTime = 0
+    
+    const handleTouchStart = (e) => {
+      scrollLockRef.current.startX = e.touches[0].clientX
+      scrollLockRef.current.startY = e.touches[0].clientY
+      touchStartTime = Date.now()
+      scrollLockRef.current.direction = null
+    }
+
+    const handleTouchMove = (e) => {
+      if (!scrollLockRef.current.startX || !scrollLockRef.current.startY) return
+
+      const currentX = e.touches[0].clientX
+      const currentY = e.touches[0].clientY
+      const deltaX = Math.abs(currentX - scrollLockRef.current.startX)
+      const deltaY = Math.abs(currentY - scrollLockRef.current.startY)
+
+      // Determine direction on first significant movement
+      if (!scrollLockRef.current.direction && (deltaX > 10 || deltaY > 10)) {
+        if (deltaX > deltaY) {
+          scrollLockRef.current.direction = 'horizontal'
+        } else {
+          scrollLockRef.current.direction = 'vertical'
+        }
+      }
+
+      // Prevent all scrolling - we handle it in touchend
+      if (scrollLockRef.current.direction) {
+        e.preventDefault()
+      }
+    }
+
+    const handleTouchEnd = (e) => {
+      if (!scrollLockRef.current.startX || !scrollLockRef.current.startY) return
+
+      if (scrollLockRef.current.direction === 'horizontal') {
+        const endX = e.changedTouches[0].clientX
+        const deltaX = endX - scrollLockRef.current.startX
+        const deltaTime = Date.now() - touchStartTime
+        const absDeltaX = Math.abs(deltaX)
+
+        e.preventDefault()
+        const columnWidth = getColumnWidth()
+        const currentColumn = Math.round(scrollElement.scrollLeft / columnWidth)
+        
+        // Always scroll 4 columns
+        const direction = deltaX > 0 ? -1 : 1 // Swipe right = scroll left
+        const targetColumn = Math.max(0, currentColumn + (direction * 4))
+        
+        scrollElement.scrollTo({
+          left: targetColumn * columnWidth,
+          behavior: 'smooth'
+        })
+      } else if (scrollLockRef.current.direction === 'vertical') {
+        const endY = e.changedTouches[0].clientY
+        const deltaY = endY - scrollLockRef.current.startY
+
+        e.preventDefault()
+        const rowHeight = getRowHeight()
+        const currentRow = Math.round(scrollElement.scrollTop / rowHeight)
+        
+        // Always scroll 4 rows
+        const direction = deltaY > 0 ? -1 : 1 // Swipe down = scroll up
+        let targetRow = currentRow + (direction * 4)
         
         // Prevent scrolling up into top blank rows if they shouldn't be visible
-        if (!showTopBlanks) {
+        const minRow = showTopBlanks ? 0 : 0
+        const maxRow = (showTopBlanks ? 58 : 54) - 1
+        targetRow = Math.max(minRow, Math.min(maxRow, targetRow))
+        
+        scrollElement.scrollTo({
+          top: targetRow * rowHeight,
+          behavior: 'smooth'
+        })
+      }
+
+      // Reset
+      setTimeout(() => {
+        scrollLockRef.current.direction = null
+        scrollLockRef.current.startX = 0
+        scrollLockRef.current.startY = 0
+      }, 100)
+    }
+
+    scrollElement.addEventListener('wheel', handleWheel, { passive: false })
+    scrollElement.addEventListener('touchstart', handleTouchStart, { passive: false })
+    scrollElement.addEventListener('touchmove', handleTouchMove, { passive: false })
+    scrollElement.addEventListener('touchend', handleTouchEnd, { passive: false })
+
+    return () => {
+      scrollElement.removeEventListener('wheel', handleWheel)
+      scrollElement.removeEventListener('touchstart', handleTouchStart)
+      scrollElement.removeEventListener('touchmove', handleTouchMove)
+      scrollElement.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [])
+
+  // Build navigable grid map when data is loaded
+  useEffect(() => {
+    if (categories.length === 0 || Object.keys(categoryStreams).length === 0) {
+      gridMapRef.current = []
+      return
+    }
+
+    const map = []
+    
+    rowLayouts.forEach((blocks, rowIndex) => {
+      // Skip blank rows
+      if (blocks[0]?.isBlank) return
+      
+      // Map each block in the row
+      const rowData = blocks.map((block, blockIndex) => {
+        const categoryIndex = showTopBlanks ? rowIndex - 4 : rowIndex
+        const category = categories[categoryIndex]
+        const streams = category ? categoryStreams[category.id] : []
+        const stream = streams && streams[block.streamIndex]
+        
+        return {
+          actualRowIndex: rowIndex, // The actual row index in rowLayouts
+          blockIndex,
+          position: block.position,
+          width: block.width,
+          streamIndex: block.streamIndex,
+          categoryIndex,
+          hasStream: !!stream,
+          stream,
+          category
+        }
+      })
+      
+      map.push(rowData)
+    })
+    
+    gridMapRef.current = map
+  }, [categories, categoryStreams, rowLayouts, showTopBlanks])
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check if arrow keys or WASD
+      const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)
+      const isEnter = e.key === 'Enter'
+      const isEscape = e.key === 'Escape'
+      
+      if (!isArrowKey && !isEnter && !isEscape) return
+      
+      // Escape exits focus mode
+      if (isEscape) {
+        setFocusedCell(null)
+        return
+      }
+      
+      // Enter activates focused cell
+      if (isEnter && focusedCell) {
+        e.preventDefault()
+        const row = gridMapRef.current[focusedCell.rowIndex]
+        if (!row) return
+        const cell = row[focusedCell.blockIndex]
+        if (!cell || !cell.hasStream) return
+        
+        // Activate stream
+        setIsAutoRotating(false)
+        setFeaturedStream({
+          ...cell.stream,
+          categoryName: cell.category.name,
+          categoryRank: cell.categoryIndex + 1
+        })
+        return
+      }
+      
+      // Arrow keys for navigation
+      if (isArrowKey) {
+        e.preventDefault()
+        
+        // If auto-scroll is happening, speed it up to complete immediately
+        if (autoScrollRef.current.isAutoScrolling) {
+          const scrollElement = scrollRef.current
+          if (scrollElement && autoScrollRef.current.targetScroll !== undefined) {
+            // Cancel the current animation
+            if (autoScrollRef.current.interval) {
+              cancelAnimationFrame(autoScrollRef.current.interval)
+            }
+            
+            // Jump to target with fast animation
+            scrollElement.scrollTo({
+              top: autoScrollRef.current.targetScroll,
+              behavior: 'smooth'
+            })
+            
+            // Mark auto-scroll as done
+            autoScrollRef.current.isAutoScrolling = false
+            
+            // Small delay to let the fast scroll complete before allowing keyboard nav
+            setTimeout(() => {
+              // Trigger the keyboard navigation after speed-up completes
+              // Re-dispatch the event or just return to let it process normally
+            }, 300)
+            return
+          }
+        }
+        
+        // Shift + Arrow = large scroll (4 units)
+        if (e.shiftKey) {
+          const scrollElement = scrollRef.current
+          if (!scrollElement) return
+          
           const getRowHeight = () => {
             const vh = window.innerHeight / 100
             const vw = window.innerWidth / 100
             return (50 * vh - 4 * vw) / 4
           }
-          const minScroll = 0
-          scrollElement.scrollTop = Math.max(minScroll, newScrollTop)
-        } else {
-          scrollElement.scrollTop = newScrollTop
+          
+          const getColumnWidth = () => {
+            const vw = window.innerWidth / 100
+            return 18.96 * vw
+          }
+          
+          if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+            const rowHeight = getRowHeight()
+            const currentRow = Math.round(scrollElement.scrollTop / rowHeight)
+            const targetRow = Math.max(0, currentRow - 4)
+            scrollElement.scrollTo({ top: targetRow * rowHeight, behavior: 'smooth' })
+          } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+            const rowHeight = getRowHeight()
+            const currentRow = Math.round(scrollElement.scrollTop / rowHeight)
+            const maxRow = (showTopBlanks ? 58 : 54) - 1
+            const targetRow = Math.min(maxRow, currentRow + 4)
+            scrollElement.scrollTo({ top: targetRow * rowHeight, behavior: 'smooth' })
+          } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+            const columnWidth = getColumnWidth()
+            const currentColumn = Math.round(scrollElement.scrollLeft / columnWidth)
+            const targetColumn = Math.max(0, currentColumn - 4)
+            scrollElement.scrollTo({ left: targetColumn * columnWidth, behavior: 'smooth' })
+          } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+            const columnWidth = getColumnWidth()
+            const currentColumn = Math.round(scrollElement.scrollLeft / columnWidth)
+            const targetColumn = currentColumn + 4
+            scrollElement.scrollTo({ left: targetColumn * columnWidth, behavior: 'smooth' })
+          }
+          return
         }
-        e.preventDefault()
+        
+        // Check if focused cell is visible, if not reset to top-left visible cell
+        const scrollEl = scrollRef.current
+        if (focusedCell && scrollEl) {
+          const getRowHeight = () => {
+            const vh = window.innerHeight / 100
+            const vw = window.innerWidth / 100
+            return (50 * vh - 4 * vw) / 4
+          }
+          
+          const rowHeight = getRowHeight()
+          const viewportTop = scrollEl.scrollTop
+          const viewportBottom = viewportTop + scrollEl.clientHeight
+          
+          const focusedRowTop = focusedCell.rowIndex * rowHeight
+          const focusedRowBottom = focusedRowTop + rowHeight
+          
+          // Check if focused cell is outside viewport
+          const isOutsideViewport = focusedRowBottom < viewportTop || focusedRowTop > viewportBottom
+          
+          if (isOutsideViewport) {
+            // Reset to top-left visible cell
+            const topVisibleRow = Math.floor(viewportTop / rowHeight)
+            
+            // Find the grid map row that corresponds to this actual row
+            let targetGridRow = null
+            for (let i = 0; i < gridMapRef.current.length; i++) {
+              const row = gridMapRef.current[i]
+              if (row[0].actualRowIndex === topVisibleRow) {
+                targetGridRow = row
+                break
+              }
+            }
+            
+            if (targetGridRow && targetGridRow.length > 0) {
+              setFocusedCell({
+                rowIndex: targetGridRow[0].actualRowIndex,
+                blockIndex: 0
+              })
+              return
+            }
+          }
+        }
+        
+        // Initialize focus if not set
+        if (!focusedCell) {
+          // Start at first cell of first row in grid map
+          if (gridMapRef.current.length > 0 && gridMapRef.current[0].length > 0) {
+            const firstCell = gridMapRef.current[0][0]
+            setFocusedCell({ 
+              rowIndex: firstCell.actualRowIndex, 
+              blockIndex: 0 
+            })
+          }
+          return
+        }
+        
+        // Find current cell in grid map
+        let gridRowIndex = -1
+        let currentRow = null
+        let currentCell = null
+        
+        for (let i = 0; i < gridMapRef.current.length; i++) {
+          const row = gridMapRef.current[i]
+          if (row[0].actualRowIndex === focusedCell.rowIndex) {
+            gridRowIndex = i
+            currentRow = row
+            currentCell = row[focusedCell.blockIndex]
+            break
+          }
+        }
+        
+        if (!currentRow || !currentCell) return
+        
+        let newGridRowIndex = gridRowIndex
+        let newBlockIndex = focusedCell.blockIndex
+        
+        if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+          // Move left - stay in current row
+          if (newBlockIndex > 0) {
+            newBlockIndex--
+          }
+        } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+          // Move right - stay in current row
+          if (newBlockIndex < currentRow.length - 1) {
+            newBlockIndex++
+          }
+        } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+          // Move up - find cell in previous row that overlaps current position
+          if (newGridRowIndex > 0) {
+            newGridRowIndex--
+            const targetRow = gridMapRef.current[newGridRowIndex]
+            const currentLeftEdge = currentCell.position
+            
+            // Find cell that contains the left edge of current cell
+            let foundCell = targetRow.find(cell => 
+              currentLeftEdge >= cell.position && currentLeftEdge < cell.position + cell.width
+            )
+            
+            if (!foundCell) {
+              // Find cell with closest left edge (prefer leftmost when equidistant)
+              foundCell = targetRow.reduce((closest, cell) => {
+                const cellDist = Math.abs(cell.position - currentLeftEdge)
+                const closestDist = Math.abs(closest.position - currentLeftEdge)
+                // If distances are equal, prefer the leftmost cell
+                if (cellDist === closestDist) {
+                  return cell.position < closest.position ? cell : closest
+                }
+                return cellDist < closestDist ? cell : closest
+              })
+            }
+            
+            newBlockIndex = targetRow.indexOf(foundCell)
+          }
+        } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+          // Move down - find cell in next row that overlaps current position
+          if (newGridRowIndex < gridMapRef.current.length - 1) {
+            newGridRowIndex++
+            const targetRow = gridMapRef.current[newGridRowIndex]
+            const currentLeftEdge = currentCell.position
+            
+            // Find cell that contains the left edge of current cell
+            let foundCell = targetRow.find(cell => 
+              currentLeftEdge >= cell.position && currentLeftEdge < cell.position + cell.width
+            )
+            
+            if (!foundCell) {
+              // Find cell with closest left edge (prefer leftmost when equidistant)
+              foundCell = targetRow.reduce((closest, cell) => {
+                const cellDist = Math.abs(cell.position - currentLeftEdge)
+                const closestDist = Math.abs(closest.position - currentLeftEdge)
+                // If distances are equal, prefer the leftmost cell
+                if (cellDist === closestDist) {
+                  return cell.position < closest.position ? cell : closest
+                }
+                return cellDist < closestDist ? cell : closest
+              })
+            }
+            
+            newBlockIndex = targetRow.indexOf(foundCell)
+          }
+        }
+        
+        // Get the actual row index from the new grid position
+        const newRowData = gridMapRef.current[newGridRowIndex]
+        const newActualRowIndex = newRowData[0].actualRowIndex
+        const newCell = newRowData[newBlockIndex]
+        
+        setFocusedCell({ rowIndex: newActualRowIndex, blockIndex: newBlockIndex })
+        
+        // Check if new cell is visible, if not scroll to it
+        const scrollElement = scrollRef.current
+        if (!scrollElement) return
+        
+        const getRowHeight = () => {
+          const vh = window.innerHeight / 100
+          const vw = window.innerWidth / 100
+          return (50 * vh - 4 * vw) / 4
+        }
+        
+        const getColumnWidth = () => {
+          const vw = window.innerWidth / 100
+          return 18.96 * vw
+        }
+        
+        // Check vertical visibility
+        const rowHeight = getRowHeight()
+        const cellTop = newActualRowIndex * rowHeight
+        const cellBottom = cellTop + rowHeight
+        const viewportTop = scrollElement.scrollTop
+        const viewportBottom = viewportTop + scrollElement.clientHeight
+        
+        if (cellTop < viewportTop) {
+          // Scroll up to show cell
+          const targetRow = Math.floor(newActualRowIndex / 4) * 4
+          scrollElement.scrollTo({ top: targetRow * rowHeight, behavior: 'smooth' })
+        } else if (cellBottom > viewportBottom) {
+          // Scroll down to show cell
+          const targetRow = Math.ceil((newActualRowIndex + 1 - 4) / 4) * 4
+          scrollElement.scrollTo({ top: targetRow * rowHeight, behavior: 'smooth' })
+        }
+        
+        // Check horizontal visibility
+        const columnWidth = getColumnWidth()
+        const firstColumnWidth = 12.64 * (window.innerWidth / 100)
+        const cellLeft = firstColumnWidth + (newCell.position * columnWidth)
+        const cellRight = cellLeft + (newCell.width * columnWidth)
+        const viewportLeft = scrollElement.scrollLeft + firstColumnWidth
+        const viewportRight = viewportLeft + scrollElement.clientWidth - firstColumnWidth
+        
+        if (cellLeft < viewportLeft) {
+          // Scroll left to show cell
+          const targetColumn = Math.floor(newCell.position / 4) * 4
+          scrollElement.scrollTo({ left: targetColumn * columnWidth, behavior: 'smooth' })
+        } else if (cellRight > viewportRight) {
+          // Scroll right to show cell
+          const targetColumn = Math.ceil((newCell.position + newCell.width - 4) / 4) * 4
+          scrollElement.scrollTo({ left: targetColumn * columnWidth, behavior: 'smooth' })
+        }
       }
-      
-      // Reset direction after a short delay
-      clearTimeout(scrollLockRef.current.timeout)
-      scrollLockRef.current.timeout = setTimeout(() => {
-        scrollLockRef.current.direction = null
-        scrollLockRef.current.scrollAccumulator = 0
-      }, 75)
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusedCell, categories, categoryStreams, showTopBlanks, rowLayouts])
+
+  // Clear focus on mouse click
+  useEffect(() => {
+    const handleClick = () => {
+      setFocusedCell(null)
+    }
+    
+    window.addEventListener('click', handleClick)
+    return () => window.removeEventListener('click', handleClick)
+  }, [])
+
+  // Detect scrolling to pause category text animation
+  useEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+
+    const handleScroll = () => {
+      setIsScrolling(true)
+      clearTimeout(scrollTimeoutRef.current)
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false)
+      }, 150)
     }
 
-    scrollElement.addEventListener('scroll', handleScroll)
-    scrollElement.addEventListener('wheel', handleWheel, { passive: false })
-
+    scrollElement.addEventListener('scroll', handleScroll, { passive: true })
     return () => {
       scrollElement.removeEventListener('scroll', handleScroll)
-      scrollElement.removeEventListener('wheel', handleWheel)
+      clearTimeout(scrollTimeoutRef.current)
     }
   }, [])
+
+  // Detect text overflow and add animation class
+  useEffect(() => {
+    const checkOverflow = () => {
+      const newOverflowing = new Set()
+      const containers = document.querySelectorAll('.category-text-container')
+      
+      containers.forEach((container, index) => {
+        const textElement = container.querySelector('.category-scroll-text')
+        if (textElement) {
+          // Get the category name from the title attribute
+          const categoryName = textElement.getAttribute('title')
+          
+          // Add 10px padding buffer to ensure we catch text that's close to overflowing
+          const isOverflowing = textElement.scrollWidth > (container.clientWidth + 10)
+          
+          if (isOverflowing) {
+            textElement.classList.add('overflow')
+            if (categoryName) {
+              newOverflowing.add(categoryName)
+            }
+          } else {
+            textElement.classList.remove('overflow')
+          }
+        }
+      })
+      
+      setOverflowingCategories(newOverflowing)
+    }
+
+    // Check on mount and when categories change
+    checkOverflow()
+    
+    // Also check on window resize
+    window.addEventListener('resize', checkOverflow)
+    return () => window.removeEventListener('resize', checkOverflow)
+  }, [categories, isLoadingCategories])
+
+  // Use Intersection Observer to restart animation when cells come into view
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const textElement = entry.target
+          if (entry.isIntersecting) {
+            // Element is visible - restart animation by removing and re-adding class
+            textElement.classList.remove('visible')
+            // Force reflow
+            void textElement.offsetWidth
+            textElement.classList.add('visible')
+          } else {
+            // Element is not visible - remove class
+            textElement.classList.remove('visible')
+          }
+        })
+      },
+      {
+        root: scrollRef.current,
+        threshold: 0.1
+      }
+    )
+
+    // Observe all category text elements
+    const observeElements = () => {
+      const textElements = document.querySelectorAll('.category-scroll-text.overflow')
+      textElements.forEach((el) => observer.observe(el))
+    }
+
+    observeElements()
+
+    // Re-observe when categories change
+    const timeoutId = setTimeout(observeElements, 100)
+
+    return () => {
+      observer.disconnect()
+      clearTimeout(timeoutId)
+    }
+  }, [categories, overflowingCategories])
+
+  // Clear DVD logo state when user interacts (not automatically)
+  useEffect(() => {
+    const clearDvdState = () => {
+      if (!showDvdLogo) {
+        sessionStorage.removeItem('dvdLogoActive')
+        sessionStorage.removeItem('dvdPosition')
+        sessionStorage.removeItem('dvdVelocity')
+        sessionStorage.removeItem('dvdLogoColor')
+      }
+    }
+
+    // Clear state when logo is hidden due to user interaction
+    if (!showDvdLogo && sessionStorage.getItem('dvdLogoActive') === 'true') {
+      clearDvdState()
+    }
+  }, [showDvdLogo])
+
+  // Save DVD logo state continuously when active
+  useEffect(() => {
+    if (!showDvdLogo) return
+
+    const saveDvdState = () => {
+      sessionStorage.setItem('dvdLogoActive', 'true')
+      sessionStorage.setItem('dvdPosition', JSON.stringify(dvdPosition))
+      sessionStorage.setItem('dvdVelocity', JSON.stringify(dvdVelocity))
+      sessionStorage.setItem('dvdLogoColor', dvdLogoColor)
+    }
+
+    // Save immediately when state changes
+    saveDvdState()
+
+    // Also save periodically
+    const saveInterval = setInterval(saveDvdState, 100)
+
+    // Save before page unload
+    const handleBeforeUnload = () => {
+      saveDvdState()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      clearInterval(saveInterval)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [showDvdLogo, dvdPosition, dvdVelocity, dvdLogoColor])
+
+  // DVD Logo idle animation
+  useEffect(() => {
+    let lastMouseMove = Date.now()
+    let lastManualScroll = Date.now()
+    
+    const resetIdleTimer = () => {
+      clearTimeout(dvdIdleTimeoutRef.current)
+      setShowDvdLogo(false)
+      
+      dvdIdleTimeoutRef.current = setTimeout(() => {
+        setShowDvdLogo(true)
+      }, 15000) // 15 seconds
+    }
+
+    const handleMouseMove = () => {
+      lastMouseMove = Date.now()
+      resetIdleTimer()
+    }
+
+    const handleKeyDown = () => {
+      resetIdleTimer()
+    }
+
+    const handleClick = () => {
+      resetIdleTimer()
+    }
+
+    const handleScroll = (e) => {
+      // Only reset if it's a manual scroll (not auto-scroll)
+      // Auto-scroll happens when isAutoScrolling is true
+      if (!autoScrollRef.current.isAutoScrolling) {
+        const now = Date.now()
+        // Debounce scroll events - only reset if it's been more than 100ms since last manual scroll
+        if (now - lastManualScroll > 100) {
+          lastManualScroll = now
+          resetIdleTimer()
+        }
+      }
+    }
+
+    // Only start timer if logo wasn't already active from previous session
+    const wasActive = sessionStorage.getItem('dvdLogoActive') === 'true'
+    if (!wasActive) {
+      resetIdleTimer()
+    }
+
+    // Listen for user activity (not auto-scroll)
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('click', handleClick)
+    
+    const scrollElement = scrollRef.current
+    if (scrollElement) {
+      scrollElement.addEventListener('wheel', handleScroll)
+      scrollElement.addEventListener('touchstart', handleScroll)
+    }
+
+    return () => {
+      clearTimeout(dvdIdleTimeoutRef.current)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('click', handleClick)
+      if (scrollElement) {
+        scrollElement.removeEventListener('wheel', handleScroll)
+        scrollElement.removeEventListener('touchstart', handleScroll)
+      }
+    }
+  }, [])
+
+  // DVD Logo bouncing animation
+  useEffect(() => {
+    if (!showDvdLogo) {
+      if (dvdAnimationRef.current) {
+        cancelAnimationFrame(dvdAnimationRef.current)
+      }
+      return
+    }
+
+    const logoWidthVw = 15 // percentage of viewport width
+    // Use fixed aspect ratio for logo height - assuming roughly 1:1 aspect ratio
+    const logoHeightVw = 15 // Same as width for square logo
+    // Convert to vh for vertical bounds
+    const logoHeightVh = (logoHeightVw * window.innerWidth) / window.innerHeight
+
+    const animate = () => {
+      setDvdPosition(prev => {
+        let newX = prev.x + dvdVelocity.x
+        let newY = prev.y + dvdVelocity.y
+        let newVelX = dvdVelocity.x
+        let newVelY = dvdVelocity.y
+        let bouncedX = false
+        let bouncedY = false
+
+        // Check horizontal bounds (in vw)
+        if (newX <= 0) {
+          newVelX = Math.abs(newVelX)
+          newX = 0
+          bouncedX = true
+        } else if (newX >= 100 - logoWidthVw) {
+          newVelX = -Math.abs(newVelX)
+          newX = 100 - logoWidthVw
+          bouncedX = true
+        }
+
+        // Check vertical bounds (in vh) - use tighter bounds
+        if (newY <= 0) {
+          newVelY = Math.abs(newVelY)
+          newY = 0
+          bouncedY = true
+        } else if (newY >= 100 - logoHeightVh) {
+          newVelY = -Math.abs(newVelY)
+          newY = 100 - logoHeightVh
+          bouncedY = true
+        }
+
+        // Update velocity if changed
+        if (newVelX !== dvdVelocity.x || newVelY !== dvdVelocity.y) {
+          setDvdVelocity({ x: newVelX, y: newVelY })
+        }
+
+        // Change color on bounce (only if it's a new bounce)
+        if ((bouncedX && !lastBounceRef.current.x) || (bouncedY && !lastBounceRef.current.y)) {
+          setDvdLogoColor(current => current === 'color' ? 'white' : 'color')
+        }
+
+        // Update bounce tracking
+        lastBounceRef.current = { x: bouncedX, y: bouncedY }
+
+        return { x: newX, y: newY }
+      })
+
+      dvdAnimationRef.current = requestAnimationFrame(animate)
+    }
+
+    dvdAnimationRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (dvdAnimationRef.current) {
+        cancelAnimationFrame(dvdAnimationRef.current)
+      }
+    }
+  }, [showDvdLogo, dvdVelocity])
 
   const formatTime = (date) => {
     const timeString = date.toLocaleTimeString('en-US', { 
@@ -1127,172 +1916,14 @@ function App() {
           </button>
         </div>
         
-        {/* Frozen First Column */}
-        <div 
-          id="first-column"
-          style={{
-            position: 'absolute',
-            top: headerRowHeight,
-            left: 0,
-            width: firstColumnWidth,
-            zIndex: 3,
-            backgroundColor: '#1B0731',
-            pointerEvents: 'none',
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
-          {Array.from({ length: totalRows }, (_, i) => {
-            // Determine if this is a blank row
-            const isTopBlank = showTopBlanks && i < 4
-            const isBottomBlank = i >= (showTopBlanks ? 54 : 50)
-            const isBlank = isTopBlank || isBottomBlank
-            const channelNum = isBlank ? '' : (i - channelRowOffset + 1)
-            
-            // Get category name for this channel
-            const categoryIndex = i - channelRowOffset
-            const categoryName = !isBlank && categories[categoryIndex] 
-              ? categories[categoryIndex].name 
-              : 'CATEGORY'
-            
-            return (
-              <div key={i} style={{
-                ...firstColumnStyle, 
-                height: typicalRowHeight,
-                position: 'relative',
-                flexDirection: 'column',
-                gap: '0.2vh',
-                padding: '0 0.5vw'
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  backgroundColor: '#312043',
-                  borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                  borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                  borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                  borderRight: '5px solid rgba(0, 0, 0, 0.6)',
-                  boxSizing: 'border-box',
-                  zIndex: -1
-                }} />
-                {!isBlank && (
-                  <>
-                    <span style={{ position: 'relative', zIndex: 1 }}>CH {channelNum}</span>
-                    <span style={{ 
-                      position: 'relative', 
-                      zIndex: 1, 
-                      fontSize: 'calc(((50vh - 4vw) / 4) * 0.25)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      width: '100%',
-                      textAlign: 'center'
-                    }}>
-                      {isLoadingCategories ? 'Loading...' : categoryName}
-                    </span>
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
+
         
-        {/* Fixed Blank Row Ads (non-scrolling horizontally) */}
-        <div 
-          id="blank-row-ads"
-          style={{
-            position: 'absolute',
-            top: headerRowHeight,
-            left: firstColumnWidth,
-            width: `calc(${typicalColumnWidth} * 5)`,
-            zIndex: 2,
-            pointerEvents: 'auto'
-          }}
-        >
-          {rowLayouts.map((blocks, rowIndex) => {
-            const isBlankRow = blocks[0]?.isBlank
-            if (!isBlankRow) return null
-            
-            // Determine which ad image to show for blank rows
-            let adImageNumber = null
-            if (showTopBlanks && rowIndex < 4) {
-              adImageNumber = rowIndex + 1
-            } else if (rowIndex >= (showTopBlanks ? 54 : 50)) {
-              const bottomRowOffset = rowIndex - (showTopBlanks ? 54 : 50)
-              adImageNumber = bottomRowOffset + 1
-            }
-            
-            if (!adImageNumber) return null
-            
-            return (
-              <button 
-                key={`ad-${rowIndex}`}
-                className="show-button blank-row-ad"
-                style={{
-                  position: 'absolute',
-                  top: `calc(${typicalRowHeight} * ${rowIndex})`,
-                  left: 0,
-                  height: typicalRowHeight,
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  border: 'none',
-                  background: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                  overflow: 'hidden',
-                  pointerEvents: 'auto'
-                }}
-              >
-                <div 
-                  className="show-button-bg"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    backgroundColor: '#423352',
-                    borderTop: '5px solid rgba(255, 255, 255, 0.6)',
-                    borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
-                    borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
-                    borderRight: '5px solid rgba(0, 0, 0, 0.6)',
-                    boxSizing: 'border-box',
-                    zIndex: -1,
-                    transition: 'background-color 0.2s ease'
-                  }} 
-                />
-                <img 
-                  src={`/images/ad-row-${adImageNumber}.png`}
-                  alt={`Advertisement ${adImageNumber}`}
-                  style={{
-                    position: 'absolute',
-                    top: '5px',
-                    left: '5px',
-                    right: '5px',
-                    bottom: '5px',
-                    width: 'calc(100% - 10px)',
-                    height: 'calc(100% - 10px)',
-                    objectFit: 'cover',
-                    objectPosition: 'left center',
-                    pointerEvents: 'none',
-                    zIndex: 1
-                  }}
-                  onError={(e) => {
-                    e.target.style.display = 'none'
-                  }}
-                />
-              </button>
-            )
-          })}
-        </div>
+
         
         {/* Scrollable Content Area with hidden scrollbars */}
         <div 
           ref={scrollRef}
-          className="scrollable-grid"
+          className={`scrollable-grid ${isScrolling ? 'scrolling' : ''}`}
           style={{
             position: 'absolute',
             top: 0,
@@ -1302,7 +1933,8 @@ function App() {
             overflowX: 'auto',
             overflowY: 'auto',
             scrollbarWidth: 'none',
-            msOverflowStyle: 'none'
+            msOverflowStyle: 'none',
+            touchAction: 'pan-y'
           }}
         >
           {/* Content blocks for all rows */}
@@ -1329,37 +1961,162 @@ function App() {
             const category = categories[categoryIndex]
             const streams = category ? categoryStreams[category.id] : []
             
+            // Determine if this is a blank row for first column
+            const isTopBlank = showTopBlanks && rowIndex < 4
+            const isBottomBlank = rowIndex >= (showTopBlanks ? 54 : 50)
+            const isBlank = isTopBlank || isBottomBlank
+            const channelNum = isBlank ? '' : (rowIndex - channelRowOffset + 1)
+            
+            // Get category name for this channel
+            const categoryName = !isBlank && categories[categoryIndex] 
+              ? categories[categoryIndex].name 
+              : 'CATEGORY'
+            
             return (
               <div key={rowIndex} style={{
                 position: 'absolute',
                 top: `calc(${headerRowHeight} + ${typicalRowHeight} * ${rowIndex})`,
-                left: firstColumnWidth,
+                left: 0,
                 height: typicalRowHeight,
                 display: 'flex',
                 gap: '0',
                 border: isBlankRow ? 'none' : undefined
               }}>
-                {blocks.map((block) => {
+                {/* First Column - Sticky */}
+                <div style={{
+                  ...firstColumnStyle, 
+                  height: typicalRowHeight,
+                  width: firstColumnWidth,
+                  minWidth: firstColumnWidth,
+                  maxWidth: firstColumnWidth,
+                  position: 'sticky',
+                  left: 0,
+                  flexDirection: 'column',
+                  gap: '0.2vh',
+                  padding: '0 0.5vw',
+                  backgroundColor: '#1B0731',
+                  zIndex: 3,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#312043',
+                    borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                    borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                    borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                    borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                    boxSizing: 'border-box',
+                    zIndex: -1
+                  }} />
+                  {!isBlank && (
+                    <>
+                      <span style={{ position: 'relative', zIndex: 1 }}>CH {channelNum}</span>
+                      <div 
+                        className="category-text-container"
+                        style={{ 
+                          position: 'relative', 
+                          zIndex: 1, 
+                          fontSize: 'calc(((50vh - 4vw) / 4) * 0.25)',
+                          width: '100%',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          justifyContent: overflowingCategories.has(categoryName) ? 'flex-start' : 'center'
+                        }}
+                      >
+                        <span 
+                          className="category-scroll-text"
+                          style={{ 
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block',
+                            textAlign: 'center',
+                            paddingLeft: overflowingCategories.has(categoryName) ? '10px' : '0'
+                          }}
+                          title={categoryName}
+                          data-category={categoryName}
+                        >
+                          {isLoadingCategories 
+                            ? 'Loading...' 
+                            : overflowingCategories.has(categoryName)
+                              ? `${categoryName}  ///  ${categoryName}  ///  ${categoryName}  ///  ${categoryName}  ///  `
+                              : categoryName
+                          }
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {blocks.map((block, blockIndex) => {
                 // For blank blocks, calculate width to span all visible columns
                 const blockWidth = block.isBlank 
                   ? `calc(${typicalColumnWidth} * 15)` // Span 15 columns (enough to cover visible area)
                   : `calc(${typicalColumnWidth} * ${block.width})`
                 
-                // Render blank blocks - empty spacer since ads are rendered separately
+                // Render blank blocks with sticky ad
                 if (block.isBlank) {
                   return (
-                    <div 
+                    <button 
                       key={block.id}
+                      className="show-button blank-row-ad"
                       style={{
                         height: typicalRowHeight,
                         width: blockWidth,
                         minWidth: blockWidth,
                         boxSizing: 'border-box',
-                        position: 'relative',
+                        position: 'sticky',
+                        left: firstColumnWidth,
                         border: 'none',
-                        background: 'transparent'
+                        background: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        overflow: 'hidden',
+                        pointerEvents: 'auto',
+                        zIndex: 2
                       }}
-                    />
+                    >
+                      <div 
+                        className="show-button-bg"
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          backgroundColor: '#423352',
+                          borderTop: '5px solid rgba(255, 255, 255, 0.6)',
+                          borderLeft: '5px solid rgba(255, 255, 255, 0.6)',
+                          borderBottom: '5px solid rgba(0, 0, 0, 0.6)',
+                          borderRight: '5px solid rgba(0, 0, 0, 0.6)',
+                          boxSizing: 'border-box',
+                          zIndex: -1,
+                          transition: 'background-color 0.2s ease'
+                        }} 
+                      />
+                      <img 
+                        src={`/images/ad-row-${adImageNumber}.png`}
+                        alt={`Advertisement ${adImageNumber}`}
+                        style={{
+                          position: 'absolute',
+                          top: '5px',
+                          left: '5px',
+                          right: '5px',
+                          bottom: '5px',
+                          width: 'calc(100% - 10px)',
+                          height: 'calc(100% - 10px)',
+                          objectFit: 'cover',
+                          objectPosition: 'left center',
+                          pointerEvents: 'none',
+                          zIndex: 1
+                        }}
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                        }}
+                      />
+                    </button>
                   )
                 }
                 
@@ -1380,11 +2137,16 @@ function App() {
                   }
                 }
                 
+                // Check if this cell is focused
+                const isFocused = focusedCell && 
+                  focusedCell.rowIndex === rowIndex && 
+                  focusedCell.blockIndex === blockIndex
+                
                 // Regular show blocks as buttons
                 return (
                   <button 
                     key={block.id} 
-                    className="show-button"
+                    className={`show-button ${isFocused ? 'show-button-focused' : ''}`}
                     onClick={handleStreamClick}
                     disabled={!stream}
                     style={{
@@ -1477,7 +2239,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px)',
         animation: 'scanline-flicker 0.1s infinite'
       }} />
@@ -1490,7 +2252,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 3px, transparent 3px, transparent 8px)',
         animation: 'vhs-tracking 8s linear infinite'
       }} />
@@ -1503,7 +2265,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'linear-gradient(to bottom, transparent 0%, transparent 30%, rgba(0, 0, 0, 0.02) 30%, rgba(0, 0, 0, 0.02) 32%, transparent 32%, transparent 100%)',
         animation: 'vhs-horizontal-shake 4s infinite'
       }} />
@@ -1516,7 +2278,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         animation: 'vhs-vertical-jitter 0.3s infinite'
       }} />
       
@@ -1528,7 +2290,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         filter: 'saturate(0.85) contrast(1.05)',
         mixBlendMode: 'normal'
       }} />
@@ -1541,7 +2303,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'transparent',
         animation: 'vhs-chromatic-aberration 5s infinite'
       }} />
@@ -1554,7 +2316,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         opacity: 0.08,
         mixBlendMode: 'overlay',
         animation: 'vhs-noise 0.2s infinite'
@@ -1568,7 +2330,7 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'rgba(255, 255, 255, 0.02)',
         animation: 'luma-flicker 0.08s infinite'
       }} />
@@ -1581,10 +2343,38 @@ function App() {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        zIndex: 1,
+        zIndex: 10001,
         background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
         animation: 'static-burst 12s infinite'
       }} />
+      
+      {/* DVD Logo Bouncing Animation */}
+      {showDvdLogo && (
+        <div 
+          className="crt-container"
+          style={{
+            position: 'fixed',
+            left: `${dvdPosition.x}vw`,
+            top: `${dvdPosition.y}vh`,
+            width: '15vw',
+            height: 'auto',
+            pointerEvents: 'none',
+            zIndex: 10000,
+            transition: 'none',
+            willChange: 'transform'
+          }}>
+          <img 
+            src={`/images/ttv-guide-logo-${dvdLogoColor}.png`}
+            alt="TTV Guide Logo"
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              filter: 'drop-shadow(0 0 10px rgba(0, 0, 0, 0.5))'
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -8,8 +8,9 @@ button:has(.filter-button-bg):hover .filter-button-bg {
 }
 
 /* Show button hover effect */
-.show-button:hover .show-button-bg {
-  background-color: #5A4268 !important;
+.show-button:hover .show-button-bg,
+.show-button-focused .show-button-bg {
+  background-color: #674D82 !important;
 }
 
 /* Login button hover effect */
@@ -24,6 +25,26 @@ button:has(.filter-button-bg):hover .filter-button-bg {
   }
   100% {
     transform: translateX(-50%);
+  }
+}
+
+/* Category text scrolling - RSS style infinite scroll */
+.category-scroll-text.overflow.visible {
+  animation: category-scroll-infinite 15s linear infinite;
+  animation-delay: 2s;
+}
+
+/* Pause animation when scrolling */
+.scrollable-grid.scrolling .category-scroll-text.overflow.visible {
+  animation-play-state: paused;
+}
+
+@keyframes category-scroll-infinite {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-25%);
   }
 }
 

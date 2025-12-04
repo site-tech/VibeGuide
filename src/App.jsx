@@ -1862,7 +1862,7 @@ function App() {
         </div>
 
         {/* Top Right Quadrant - Stream Info (WITH CRT effects) */}
-        <div className="crt-container barrel-distortion" style={{
+        <div className="crt-container barrel-distortion crt-overlays" style={{
           width: '50%',
           height: '100%',
           position: 'relative',
@@ -1871,7 +1871,8 @@ function App() {
           justifyContent: 'space-evenly',
           alignItems: 'center',
           filter: 'blur(calc(0.025vw + 0.025vh))',
-          imageRendering: 'pixelated'
+          imageRendering: 'pixelated',
+          overflow: 'hidden'
         }}>
           {/* TTV Guide Logo */}
           <img 
@@ -2131,7 +2132,7 @@ function App() {
       </div>
 
       {/* Bottom Half - TV Guide Grid (WITH CRT effects) */}
-      <div className="crt-container barrel-distortion" style={{
+      <div className="crt-container barrel-distortion crt-overlays" style={{
         height: '50%',
         width: '100%',
         position: 'relative',
@@ -2795,240 +2796,194 @@ function App() {
         </div>
       </div>
       
-      {/* Scanlines Overlay - Behind video player */}
-      <div className="scanlines" style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px)',
-        animation: 'scanline-flicker 0.1s infinite'
-      }} />
-      
-      {/* VHS Tracking Lines */}
-      <div className="vhs-tracking" style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 3px, transparent 3px, transparent 8px)',
-        animation: 'vhs-tracking 8s linear infinite'
-      }} />
-      
-      {/* VHS Horizontal Displacement Glitch */}
-      <div className="vhs-displacement" style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'linear-gradient(to bottom, transparent 0%, transparent 30%, rgba(0, 0, 0, 0.02) 30%, rgba(0, 0, 0, 0.02) 32%, transparent 32%, transparent 100%)',
-        animation: 'vhs-horizontal-shake 4s infinite'
-      }} />
-      
-      {/* VHS Vertical Jitter */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        animation: 'vhs-vertical-jitter 0.3s infinite'
-      }} />
-      
-      {/* VHS Reduced Color Saturation */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        filter: 'saturate(0.85) contrast(1.05)',
-        mixBlendMode: 'normal'
-      }} />
-      
-      {/* VHS RGB Chromatic Aberration */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'transparent',
-        animation: 'vhs-chromatic-aberration 5s infinite'
-      }} />
-      
-      {/* VHS Color Noise in Dark Areas */}
-      <div className="vhs-noise" style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        opacity: 0.08,
-        mixBlendMode: 'overlay',
-        animation: 'vhs-noise 0.2s infinite'
-      }} />
-      
-      {/* VHS Tape Roll - Only when Extra CRT is enabled */}
+      {/* CRT Effects - Only applied to top-right quadrant and bottom grid via Extra CRT setting */}
       {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '300%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 49%, rgba(0, 0, 0, 0.3) 49%, rgba(0, 0, 0, 0.3) 51%, transparent 51%, transparent 100%)',
-          backgroundSize: '100% 33.33%',
-          animation: 'vhs-tape-roll 20s infinite',
-          opacity: 0.6
-        }} />
+        <>
+          {/* VHS Tape Roll */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 49%, rgba(0, 0, 0, 0.3) 49%, rgba(0, 0, 0, 0.3) 51%, transparent 51%, transparent 100%)',
+            backgroundSize: '100% 33.33%',
+            animation: 'vhs-tape-roll 20s infinite',
+            opacity: 0.6
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'repeating-linear-gradient(0deg, transparent 0px, transparent 49%, rgba(0, 0, 0, 0.3) 49%, rgba(0, 0, 0, 0.3) 51%, transparent 51%, transparent 100%)',
+            backgroundSize: '100% 33.33%',
+            animation: 'vhs-tape-roll 20s infinite',
+            opacity: 0.6
+          }} />
+          
+          {/* Phosphor Persistence */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10000,
+            background: 'linear-gradient(to bottom, rgba(0, 255, 100, 0.03) 0%, rgba(0, 255, 100, 0.02) 50%, rgba(0, 255, 100, 0.01) 100%)',
+            mixBlendMode: 'screen',
+            animation: 'phosphor-fade 2s ease-in-out infinite alternate'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10000,
+            background: 'linear-gradient(to bottom, rgba(0, 255, 100, 0.03) 0%, rgba(0, 255, 100, 0.02) 50%, rgba(0, 255, 100, 0.01) 100%)',
+            mixBlendMode: 'screen',
+            animation: 'phosphor-fade 2s ease-in-out infinite alternate'
+          }} />
+          
+          {/* Magnetic Interference */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 0, 255, 0.05) 50px, transparent 100px)',
+            animation: 'magnetic-interference 8s linear infinite',
+            mixBlendMode: 'overlay'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 0, 255, 0.05) 50px, transparent 100px)',
+            animation: 'magnetic-interference 8s linear infinite',
+            mixBlendMode: 'overlay'
+          }} />
+          
+          {/* Vignette Darkening */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
+            boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
+            boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
+          }} />
+          
+          {/* RGB Convergence Issues */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'linear-gradient(90deg, rgba(255, 0, 0, 0.1) 0%, transparent 10%, transparent 90%, rgba(0, 0, 255, 0.1) 100%)',
+            mixBlendMode: 'screen'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'linear-gradient(90deg, rgba(255, 0, 0, 0.1) 0%, transparent 10%, transparent 90%, rgba(0, 0, 255, 0.1) 100%)',
+            mixBlendMode: 'screen'
+          }} />
+          
+          {/* Analog Signal Noise */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.15\'/%3E%3C/svg%3E")',
+            opacity: 0.3,
+            mixBlendMode: 'overlay',
+            animation: 'analog-noise 0.1s infinite'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.15\'/%3E%3C/svg%3E")',
+            opacity: 0.3,
+            mixBlendMode: 'overlay',
+            animation: 'analog-noise 0.1s infinite'
+          }} />
+          
+          {/* Chroma Noise */}
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            width: '50%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'chroma\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' /%3E%3CfeColorMatrix type=\'hueRotate\' values=\'180\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23chroma)\' opacity=\'0.08\'/%3E%3C/svg%3E")',
+            opacity: 0.2,
+            mixBlendMode: 'color',
+            animation: 'chroma-noise 0.15s infinite'
+          }} />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: 0,
+            width: '100%',
+            height: '50%',
+            pointerEvents: 'none',
+            zIndex: 10001,
+            background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'chroma\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' /%3E%3CfeColorMatrix type=\'hueRotate\' values=\'180\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23chroma)\' opacity=\'0.08\'/%3E%3C/svg%3E")',
+            opacity: 0.2,
+            mixBlendMode: 'color',
+            animation: 'chroma-noise 0.15s infinite'
+          }} />
+        </>
       )}
-      
-      {/* Phosphor Persistence - Ghosting/trailing effect - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10000,
-          background: 'linear-gradient(to bottom, rgba(0, 255, 100, 0.03) 0%, rgba(0, 255, 100, 0.02) 50%, rgba(0, 255, 100, 0.01) 100%)',
-          mixBlendMode: 'screen',
-          animation: 'phosphor-fade 2s ease-in-out infinite alternate'
-        }} />
-      )}
-      
-      {/* 11. Magnetic Interference - Wavy distortion bands - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 0, 255, 0.05) 50px, transparent 100px)',
-          animation: 'magnetic-interference 8s linear infinite',
-          mixBlendMode: 'overlay'
-        }} />
-      )}
-      
-      {/* 12. Vignette Darkening - Darker corners like old CRT - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
-          boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
-        }} />
-      )}
-      
-      {/* 13. RGB Convergence Issues - Misaligned color channels at edges - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'linear-gradient(90deg, rgba(255, 0, 0, 0.1) 0%, transparent 10%, transparent 90%, rgba(0, 0, 255, 0.1) 100%)',
-          mixBlendMode: 'screen'
-        }} />
-      )}
-      
-      {/* 18. Analog Signal Noise - More pronounced static in dark areas - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.15\'/%3E%3C/svg%3E")',
-          opacity: 0.3,
-          mixBlendMode: 'overlay',
-          animation: 'analog-noise 0.1s infinite'
-        }} />
-      )}
-      
-      {/* 19. Chroma Noise - Color speckles in shadows - Only when Extra CRT is enabled */}
-      {settingsCrtEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 10001,
-          background: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'chroma\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' /%3E%3CfeColorMatrix type=\'hueRotate\' values=\'180\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23chroma)\' opacity=\'0.08\'/%3E%3C/svg%3E")',
-          opacity: 0.2,
-          mixBlendMode: 'color',
-          animation: 'chroma-noise 0.15s infinite'
-        }} />
-      )}
-      
-      {/* Luma Noise - brightness flickering */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'rgba(255, 255, 255, 0.02)',
-        animation: 'luma-flicker 0.08s infinite'
-      }} />
-      
-      {/* Occasional Static Bursts */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 10001,
-        background: 'repeating-linear-gradient(0deg, transparent 0px, rgba(255, 255, 255, 0.03) 1px, transparent 2px)',
-        animation: 'static-burst 12s infinite'
-      }} />
-      
-      {/* DVD Logo Bouncing Animation - DISABLED (replaced by Logo Bouncer) */}
-      {/* {showDvdLogo && (
-        <div>...</div>
-      )} */}
       
       {/* Logo Bouncers */}
       {bouncingLogos.map(logo => (

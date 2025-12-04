@@ -150,10 +150,10 @@ func run() (err error) {
 	})
 	if err != nil {
 		zlog.Error().Msg(fmt.Sprintf("database connection err: %v\n", err))
-		return
+	} else {
+		DB = db
+		zlog.Info().Msg("connected to database")
 	}
-	DB = db
-	zlog.Info().Msg("connected to database")
 
 	if config.DbMigrate {
 		zlog.Info().Msg("migrating database...")

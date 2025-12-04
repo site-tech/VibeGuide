@@ -2,14 +2,15 @@
   display: none;
 }
 
-/* Filter button hover effect */
-button:has(.filter-button-bg):hover .filter-button-bg {
+/* Filter button hover effect - DISABLED for RSS feed */
+/* button:has(.filter-button-bg):hover .filter-button-bg {
   background-color: #7D5BA6 !important;
-}
+} */
 
 /* Show button hover effect */
-.show-button:hover .show-button-bg {
-  background-color: #5A4268 !important;
+.show-button:hover .show-button-bg,
+.show-button-focused .show-button-bg {
+  background-color: #674D82 !important;
 }
 
 /* Login button hover effect */
@@ -24,6 +25,21 @@ button:has(.filter-button-bg):hover .filter-button-bg {
   }
   100% {
     transform: translateX(-50%);
+  }
+}
+
+/* Category text scrolling - RSS style infinite scroll */
+.category-scroll-text.overflow.visible {
+  animation: category-scroll-infinite 15s linear infinite;
+  animation-delay: 2s;
+}
+
+@keyframes category-scroll-infinite {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-25%);
   }
 }
 
@@ -286,6 +302,95 @@ button:has(.filter-button-bg):hover .filter-button-bg {
 .barrel-distortion {
   transform: perspective(1000px) rotateX(1deg);
   transform-style: preserve-3d;
+}
+
+/* VHS Tape Roll - Glitching around bottom half */
+@keyframes vhs-tape-roll {
+  0% {
+    transform: translateY(-50%);
+  }
+  1% {
+    transform: translateY(-45%);
+  }
+  2% {
+    transform: translateY(-55%);
+  }
+  3% {
+    transform: translateY(-48%);
+  }
+  4% {
+    transform: translateY(-52%);
+  }
+  5% {
+    transform: translateY(-50%);
+  }
+  6% {
+    transform: translateY(-53%);
+  }
+  7% {
+    transform: translateY(-47%);
+  }
+  8% {
+    transform: translateY(-50%);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+/* Phosphor Persistence - Ghosting effect */
+@keyframes phosphor-fade {
+  0% {
+    opacity: 0.15;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
+/* 11. Magnetic Interference - Wavy distortion bands */
+@keyframes magnetic-interference {
+  0% {
+    transform: translateY(0) skewY(0deg);
+  }
+  25% {
+    transform: translateY(-50px) skewY(0.5deg);
+  }
+  50% {
+    transform: translateY(-100px) skewY(-0.5deg);
+  }
+  75% {
+    transform: translateY(-150px) skewY(0.3deg);
+  }
+  100% {
+    transform: translateY(-200px) skewY(0deg);
+  }
+}
+
+/* 18. Analog Signal Noise */
+@keyframes analog-noise {
+  0% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
+/* 19. Chroma Noise */
+@keyframes chroma-noise {
+  0% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 0.15;
+  }
 }
 
 

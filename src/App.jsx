@@ -1838,7 +1838,7 @@ function App() {
       flexDirection: 'column',
       overflow: 'hidden',
       backgroundColor: '#1B0731',
-      padding: '0 2.6vw 1.3vw 2.6vw',
+      padding: '0 2vw 1vw 2vw',
       boxSizing: 'border-box'
     }}>
       {/* Top Half - Two Quadrants */}
@@ -2879,42 +2879,19 @@ function App() {
             mixBlendMode: 'overlay'
           }} />
           
-          {/* Vignette Darkening */}
+          {/* Vignette Darkening - Full Page */}
           <div style={{
             position: 'fixed',
             top: 0,
-            left: '50%',
-            width: '50%',
-            height: '50%',
-            pointerEvents: 'none',
-            zIndex: 10001,
-            background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
-            boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
-          }} />
-          <div style={{
-            position: 'fixed',
-            top: '50%',
             left: 0,
             width: '100%',
-            height: '50%',
+            height: '100%',
             pointerEvents: 'none',
             zIndex: 10001,
             background: 'radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0.6) 100%)',
             boxShadow: 'inset 0 0 150px rgba(0, 0, 0, 0.8)'
           }} />
-          
-          {/* RGB Convergence Issues */}
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: '50%',
-            width: '50%',
-            height: '50%',
-            pointerEvents: 'none',
-            zIndex: 10001,
-            background: 'linear-gradient(90deg, rgba(255, 0, 0, 0.1) 0%, transparent 10%, transparent 90%, rgba(0, 0, 255, 0.1) 100%)',
-            mixBlendMode: 'screen'
-          }} />
+
           <div style={{
             position: 'fixed',
             top: '50%',
